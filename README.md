@@ -27,7 +27,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 135023.png" width="1080" alt="Zoological Society Logo">
+  <img src="screenshots/Screenshot 2026-02-17 144240.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ### 🎨 Graphic Customization
