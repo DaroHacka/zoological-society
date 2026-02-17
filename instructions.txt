@@ -1,0 +1,71 @@
+# Zoological Society - Setup Instructions
+
+## Quick Start
+
+### Option 1: Python Script (Recommended)
+```bash
+python Zoological_Society.py
+```
+
+This will:
+- Check if dependencies are installed (installs if needed)
+- Start the backend on port 9001
+- Start the frontend on port 3021
+- Display your local IP address for network access
+- Ask if you want to auto-start on boot (first run only)
+
+### Option 2: Bash Script
+```bash
+./initialize
+```
+
+This will:
+- Start the backend (FastAPI) on port 9001
+- Start the frontend (HTTP server) on port 3021
+- Auto-restart if either server crashes
+
+## Access the Application
+
+When the script starts, it will show:
+```
+  ➤ To access from this computer, open:
+    http://localhost:3021
+
+  ➤ To access from another device on your network, open:
+    http://192.168.1.X:3021
+```
+
+## Features
+
+- **Random Headers:** Archive displays a random header image from `/headers/` folder
+- **Auto-rotation:** Header changes every 2 hours automatically
+- **Custom Headers:** Upload your own header image in Theme & Layout
+- **Title Customization:** Rename your archive and collapse the title
+- **Dark/Light Theme:** Customize colors in Theme & Layout
+- **Add Consoles:** From ROM folders or create empty
+- **Add Games:** Manually (single or bulk)
+- **Fetch Metadata:** Get game info and covers from RAWG API or DuckDuckGo
+- **Track Progress:** Playing, Completed, Plan to Play, Favorites, etc.
+- **Global Search:** Search across all consoles
+
+## Port Configuration
+
+Default ports:
+- Backend: 9001
+- Frontend: 3021
+
+To change:
+```bash
+# Backend
+PORT=9002 python main.py
+
+# Frontend  
+python3 -m http.server 3022
+```
+
+## Optional: RAWG API Key
+
+For better metadata and cover fetching, get a free API key from:
+https://rawg.io/apidocs
+
+Paste your key in the homepage input field. Without a key, the app uses DuckDuckGo only.

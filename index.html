@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Game Archive</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+</head>
+<body>
+  <div id="app">
+
+    <!-- LOADING INDICATOR -->
+    <div id="loading-indicator" class="loading-indicator hidden">
+      <div class="spinner"></div>
+    </div>
+
+    <!-- HEADER -->
+    <header class="app-header">
+      <div class="header-left">
+        <span id="title-collapse-arrow" class="collapse-arrow" onclick="toggleTitleCollapse()">▼</span>
+        <div class="title-area">
+          <div class="title-row">
+            <h1 id="app-title" onclick="goToHomepage()" style="cursor: pointer;">Zoological Society</h1>
+            <span class="pencil-icon" onclick="startRenameTitle()">✏️</span>
+            <input type="text" id="title-edit-input" class="title-edit-input hidden" onblur="finishRenameTitle()" onkeydown="handleRenameTitleKey(event)" />
+          </div>
+          <p id="app-subtitle">your own curated archive</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="btn-home" onclick="goToHomepage()">Home</button>
+        <button id="btn-add-console">Add console</button>
+        <button id="btn-theme">Theme & layout</button>
+        <button id="btn-random-header" class="icon-btn" onclick="onRandomHeader()" title="Random Header">🔄</button>
+      </div>
+    </header>
+
+<!-- BODY -->
+  <div class="app-body">
+
+    <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <h2>Consoles</h2>
+        <ul id="console-list">
+          <!-- Filled by JS -->
+        </ul>
+
+        <!-- Genre Filter -->
+        <div id="genre-filter-section" style="margin-top: 24px; display: none;">
+          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleGenreFilter()">
+            📂 Genres <span id="genre-toggle-icon">▶</span>
+          </h3>
+          <ul id="genre-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
+            <!-- Filled by JS -->
+          </ul>
+        </div>
+
+        <!-- Status Filter -->
+        <div id="status-filter-section" style="margin-top: 24px;">
+          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleStatusFilter()">Status <span id="status-toggle-icon">▶</span></h3>
+          <ul id="status-filter-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
+            <li data-status="favorite" class="status-filter-item" onclick="applyStatusFilter('favorite')">⭐ Favorites <span class="count" id="count-favorite">0</span></li>
+            <li data-status="playing" class="status-filter-item" onclick="applyStatusFilter('playing')">🎮 Playing <span class="count" id="count-playing">0</span></li>
+            <li data-status="plan_to_play" class="status-filter-item" onclick="applyStatusFilter('plan_to_play')">📋 Plan to Play <span class="count" id="count-plan_to_play">0</span></li>
+            <li data-status="completed" class="status-filter-item" onclick="applyStatusFilter('completed')">✅ Completed <span class="count" id="count-completed">0</span></li>
+            <li data-status="dropped" class="status-filter-item" onclick="applyStatusFilter('dropped')">❌ Dropped <span class="count" id="count-dropped">0</span></li>
+            <li data-status="on_hold" class="status-filter-item" onclick="applyStatusFilter('on_hold')">⏸️ On Hold <span class="count" id="count-on_hold">0</span></li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT -->
+      <main class="main-content">
+
+        <!-- HOMEPAGE (shown by default) -->
+        <section id="homepage" class="homepage">
+          <div class="homepage-hero">
+            <h1 id="homepage-title">Zoological Society</h1>
+            <p class="homepage-tagline">Your personal digital vault for video games</p>
+            
+            <!-- Global Search -->
+            <div class="global-search">
+              <input type="text" id="global-search-input" placeholder="Search all games across all consoles..." />
+              <button id="global-search-btn">Search</button>
+            </div>
+            
+            <!-- RAWG API Key Input -->
+            <div class="rawg-api-section">
+              <div class="rawg-api-content">
+                <label for="rawg-api-key">RAWG API Key (optional)</label>
+                <div class="rawg-api-input-group">
+                  <input type="text" id="rawg-api-key" placeholder="Paste your RAWG API key here" />
+                  <button id="btn-save-rawg-key">Save</button>
+                </div>
+                <small>Until you provide a key, covers and metadata will rely solely on DuckDuckGo. <a href="https://rawg.io/apidocs" target="_blank">Get a free API key here</a></small>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Quick Stats -->
+          <div class="homepage-stats">
+            <div class="stat-card" id="stat-consoles">
+              <span class="stat-number">0</span>
+              <span class="stat-label">Consoles</span>
+            </div>
+            <div class="stat-card" id="stat-games">
+              <span class="stat-number">0</span>
+              <span class="stat-label">Total Games</span>
+            </div>
+            <div class="stat-card clickable" id="stat-completed">
+              <span class="stat-number">0</span>
+              <span class="stat-label">Completed</span>
+            </div>
+            <div class="stat-card" id="stat-favorites">
+              <span class="stat-number">0</span>
+              <span class="stat-label">Favorites</span>
+            </div>
+          </div>
+          
+          <!-- Recently Viewed -->
+          <div class="homepage-section" id="recently-viewed-section">
+            <h2>Recently Viewed</h2>
+            <div class="recently-viewed-list" id="recently-viewed-list">
+              <p class="no-items">No recently viewed games</p>
+            </div>
+          </div>
+          
+          <!-- Get Started Guide (expandable) -->
+          <div class="homepage-section get-started">
+            <button class="get-started-toggle" onclick="toggleGetStarted()">
+              <span>📖 Get Started Guide</span>
+              <span id="get-started-icon">▼</span>
+            </button>
+            <div class="get-started-content" id="get-started-content">
+              <h3>Welcome to Your Game Archive!</h3>
+              <p>This is your personal digital vault for organizing and exploring your video game collection. The database starts completely empty - you build it from your own game files!</p>
+              
+              <h4>Option 1: Add Console from Folder</h4>
+              <ol>
+                <li>Click <strong>"Add console"</strong> in the top right</li>
+                <li>Select <strong>"Add from folder"</strong></li>
+                <li>Enter a name (e.g., "Nintendo Switch", "SNES", "Commodore 64")</li>
+                <li>Enter the full path to your ROMs folder</li>
+                <li>Click <strong>"Add Console"</strong> - games will be scanned automatically</li>
+              </ol>
+              
+              <h4>Option 2: Create Empty Console (Manual Entry)</h4>
+              <ol>
+                <li>Click <strong>"Add console"</strong> in the top right</li>
+                <li>Select <strong>"Create empty console"</strong></li>
+                <li>Enter a name (e.g., "PlayStation 2", "NES", "My Favorites")</li>
+                <li>Click <strong>"Add Console"</strong></li>
+                <li>Use <strong>"Add Game"</strong> button to add games manually:</li>
+                <ul>
+                  <li><strong>Single Game:</strong> Enter one game title at a time</li>
+                  <li><strong>Paste List:</strong> Paste multiple game names (one per line)</li>
+                </ul>
+              </ol>
+              
+              <h4>Supported Consoles & File Types</h4>
+              <p>The program supports many console ROM formats:</p>
+              <ul>
+                <li><strong>Nintendo:</strong> Switch (.nsp, .xci), Wii/GameCube (.iso, .wbfs), DS (.nds), 3DS (.3ds, .cia), Game Boy (.gb, .gbc, .gba), NES (.nes), SNES (.snes, .smc)</li>
+                <li><strong>Sony:</strong> PlayStation (.iso, .bin, .cue), PSP (.pbp)</li>
+                <li><strong>Microsoft:</strong> Xbox (.iso, .xex), Xbox 360 (.iso, .xex)</li>
+                <li><strong>Sega:</strong> Dreamcast, Genesis (.smd, .md, .gen)</li>
+                <li><strong>Atari:</strong> Various (.a26, .a52, .a78)</li>
+                <li><strong>Commodore:</strong> C64 (.d64, .crt, .prg)</li>
+                <li><strong>Archives:</strong> .zip, .rar, .7z</li>
+              </ul>
+              
+              <h4>Fetching Metadata & Covers</h4>
+              <ul>
+                <li><strong>Fetch Text Metadata:</strong> Gets game descriptions from Wikipedia</li>
+                <li><strong>Fetch Covers:</strong> Downloads box art (from RAWG or DuckDuckGo)</li>
+                <li><strong>Fetch Screenshots:</strong> Downloads game screenshots</li>
+              </ul>
+              
+              <h4>Important Tips</h4>
+              <ul>
+                <li><strong>Game Names:</strong> For best results with text metadata, provide the correct game title. Sometimes you'll need to edit the title manually if the automatic detection fails.</li>
+                <li><strong>DuckDuckGo Timeouts:</strong> Sometimes DuckDuckGo may temporarily timeout. If a cover fails to fetch, wait a few seconds and try again - it's usually a temporary issue.</li>
+                <li><strong>RAWG API Key:</strong> Adding your own RAWG API key (free at rawg.io/apidocs) improves cover/metadata quality. Without it, the program uses DuckDuckGo only.</li>
+              </ul>
+              
+              <h4>Features</h4>
+              <ul>
+                <li><strong>Browse by Console:</strong> Games organized by platform in sidebar</li>
+                <li><strong>Global Search:</strong> Search across your entire collection</li>
+                <li><strong>Genre Filters:</strong> Filter games by genre within each console</li>
+                <li><strong>Status Tracking:</strong> Track progress (Playing, Completed, Plan to Play, Dropped, On Hold)</li>
+                <li><strong>Favorites:</strong> Mark games as favorites for quick access</li>
+                <li><strong>Visual Gallery:</strong> View box covers and screenshots</li>
+              </ul>
+              
+              <h4>Keyboard Shortcuts</h4>
+              <ul>
+                <li><strong>← →</strong> Navigate between games in detail view</li>
+                <li><strong>Esc</strong> Close modals</li>
+                <li><strong>Enter</strong> Perform search</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- SEARCH RESULTS VIEW (hidden by default) -->
+        <section id="search-results" class="search-results hidden">
+          <div class="search-results-header">
+            <h2>Search Results for "<span id="search-query"></span>"</h2>
+            <button class="secondary" onclick="clearSearch()">← Back to Archive</button>
+          </div>
+          <div class="game-list" id="search-results-list"></div>
+        </section>
+
+        <!-- Console summary -->
+        <section class="console-summary">
+          <h2 id="console-name">Select a console</h2>
+          <div class="console-actions">
+            <button id="btn-rescan-console" disabled>Rescan folder</button>
+            <button id="btn-add-game">Add Game</button>
+          </div>
+        </section>
+
+        <!-- Alphabetical index -->
+        <section class="alpha-index" id="alpha-index">
+          <!-- Filled by JS -->
+        </section>
+
+        <!-- Metadata buttons -->
+        <section class="metadata-actions" id="metadata-actions">
+          <button id="btn-fetch-text" class="secondary">Fetch Text Metadata</button>
+          <button id="btn-fetch-covers" class="secondary">Fetch Covers</button>
+          <button id="btn-fetch-screenshots" class="secondary">Fetch Screenshots</button>
+        </section>
+
+        <!-- Game list -->
+        <section class="game-list" id="game-list">
+          <!-- Game cards injected here -->
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Add Console Modal -->
+  <div class="modal hidden" id="modal-console">
+    <div class="modal-content">
+      <h2>Add console</h2>
+      
+      <!-- Console Type Selection -->
+      <div class="console-type-selector">
+        <label class="radio-label">
+          <input type="radio" name="console-type" value="folder" checked onchange="toggleConsoleType()" />
+          Add from folder
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="console-type" value="empty" onchange="toggleConsoleType()" />
+          Create empty console
+        </label>
+      </div>
+      
+      <label>
+        Console name
+        <input type="text" id="console-name-input" placeholder="Nintendo Switch" />
+      </label>
+      
+      <label id="console-path-label">
+        Folder path (absolute path)
+        <input type="text" id="console-path-input" placeholder="/home/user/your_directory" />
+      </label>
+      
+      <div class="modal-actions">
+        <button id="btn-console-cancel">Cancel</button>
+        <button id="btn-console-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Theme Modal -->
+  <div class="modal hidden" id="modal-theme">
+    <div class="modal-content">
+      <h2>Theme & layout</h2>
+      <label>
+        Background color
+        <input type="color" id="theme-bg-color" value="#101018" />
+      </label>
+      <label>
+        Accent color
+        <input type="color" id="theme-accent-color" value="#ffb400" />
+      </label>
+      
+      <!-- Current header preview -->
+      <div id="theme-current-header" class="theme-current-header hidden">
+        <img id="theme-current-header-img" src="" alt="Current header" />
+        <button type="button" id="btn-theme-remove-header" class="secondary">Remove</button>
+      </div>
+      
+      <label>
+        Header image URL (optional)
+        <input type="text" id="theme-header-image" placeholder="https://..." />
+      </label>
+      <label>
+        Upload header image
+        <input type="file" id="theme-header-upload" accept="image/*" />
+      </label>
+      
+      <div class="theme-header-actions">
+        <button type="button" id="btn-theme-random-header" class="secondary">🔄 Random Header</button>
+      </div>
+      
+      <div class="modal-actions">
+        <button id="btn-theme-cancel">Cancel</button>
+        <button id="btn-theme-save">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game Detail Modal -->
+  <div class="modal hidden" id="modal-game-detail">
+    <div class="modal-content modal-game-content">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+
+  <!-- Upload Cover Modal -->
+  <div class="modal hidden" id="modal-upload-cover">
+    <div class="modal-content">
+      <h2>Upload Cover</h2>
+      <input type="hidden" id="cover-game-id" />
+      
+      <div class="cover-upload-tabs">
+        <button class="tab-btn active" data-tab="upload">Upload from Disk</button>
+        <button class="tab-btn" data-tab="url">From Link</button>
+      </div>
+
+      <div id="tab-upload" class="tab-content active">
+        <label>
+          Select image file
+          <input type="file" id="cover-file-input" accept="image/*" />
+        </label>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 8px;">
+          Recommended: Portrait format (300x450px or similar)
+        </p>
+      </div>
+
+      <div id="tab-url" class="tab-content hidden">
+        <label>
+          Image URL
+          <input type="text" id="cover-url-input" placeholder="https://example.com/cover.jpg" />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btn-cover-cancel">Cancel</button>
+        <button id="btn-cover-save">Save Cover</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Game Modal -->
+  <div class="modal hidden" id="modal-edit-game">
+    <div class="modal-content">
+      <h2>Edit Game Details</h2>
+      <input type="hidden" id="edit-game-id" />
+      
+      <label>
+        Title
+        <input type="text" id="edit-game-title" />
+      </label>
+      
+      <label>
+        Genre
+        <input type="text" id="edit-game-genre" placeholder="Action, Adventure, RPG" />
+      </label>
+      
+      <label>
+        Description
+        <textarea id="edit-game-description" style="width: 100%; min-height: 120px; padding: 8px 10px; border-radius: var(--radius); border: 1px solid var(--border-subtle); background: #11111c; color: var(--text-main); font-family: var(--font-main); font-size: 0.9rem;"></textarea>
+      </label>
+      
+      <label>
+        Status
+        <div class="status-checklist">
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-favorite" />
+            <span>⭐ Favorite</span>
+          </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-playing" />
+            <span>🎮 Playing</span>
+          </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-plan-to-play" />
+            <span>📋 Plan to Play</span>
+          </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-completed" />
+            <span>✅ Completed</span>
+          </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-dropped" />
+            <span>❌ Dropped</span>
+          </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-on-hold" />
+            <span>⏸️ On Hold</span>
+          </label>
+        </div>
+      </label>
+      <label id="completed-date-label" class="hidden">
+        Completed Date (personal note)
+        <input type="text" id="edit-completed-date" placeholder="e.g., Completed in 2024, finally finished!" />
+      </label>
+      
+      <div class="modal-actions">
+        <button id="btn-edit-cancel">Cancel</button>
+        <button id="btn-edit-save">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Screenshot Modal -->
+  <div class="modal hidden" id="modal-add-screenshot">
+    <div class="modal-content">
+      <h2>Add Screenshot</h2>
+      <input type="hidden" id="screenshot-game-id" />
+      
+      <p id="screenshot-limit-msg" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
+        You can add up to 5 screenshots per game.
+      </p>
+      
+      <div class="cover-upload-tabs">
+        <button class="tab-btn active" data-tab="screenshot-upload">Upload from Disk</button>
+        <button class="tab-btn" data-tab="screenshot-url">From Link</button>
+      </div>
+
+      <div id="tab-screenshot-upload" class="tab-content active">
+        <label>
+          Select image file
+          <input type="file" id="screenshot-file-input" accept="image/*" />
+        </label>
+      </div>
+
+      <div id="tab-screenshot-url" class="tab-content hidden">
+        <label>
+          Image URL
+          <input type="text" id="screenshot-url-input" placeholder="https://example.com/screenshot.jpg" />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <button id="btn-screenshot-cancel">Cancel</button>
+        <button id="btn-screenshot-save">Add Screenshot</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completed Games Modal -->
+  <div class="modal hidden" id="modal-completed-games">
+    <div class="modal-content">
+      <h2>Completed Games</h2>
+      <div class="completed-games-list" id="completed-games-list"></div>
+      <div class="modal-actions">
+        <button onclick="toggleModal('#modal-completed-games', false)">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Game Modal -->
+  <div class="modal hidden" id="modal-add-game">
+    <div class="modal-content">
+      <h2>Add Game</h2>
+      
+      <div class="add-game-tabs">
+        <button class="tab-btn active" data-tab="single" onclick="switchAddGameTab('single')">Single Game</button>
+        <button class="tab-btn" data-tab="multi" onclick="switchAddGameTab('multi')">Paste List</button>
+      </div>
+      
+      <!-- Single Game Tab -->
+      <div id="tab-single" class="tab-content active">
+        <label>
+          Game Title
+          <input type="text" id="add-game-title" placeholder="Enter game title..." />
+        </label>
+        <p class="tab-info">This will add one game to the current console.</p>
+      </div>
+      
+      <!-- Multi Game Tab -->
+      <div id="tab-multi" class="tab-content">
+        <label>
+          Paste Game List
+          <textarea id="add-games-list" placeholder="Paste list of game names (one per line)...
+
+Example:
+Crash Bandicoot
+Metal Gear Solid
+Spyro the Dragon"></textarea>
+        </label>
+        <p class="tab-info">Each line will create a separate game entry.</p>
+      </div>
+      
+      <div class="modal-actions">
+        <button onclick="toggleModal('#modal-add-game', false)">Cancel</button>
+        <button id="btn-add-game-confirm" onclick="confirmAddGame()">Add Game(s)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screenshot Lightbox -->
+  <div class="lightbox" id="screenshot-lightbox">
+    <div class="lightbox-content">
+      <button class="lightbox-close" onclick="closeLightbox()">×</button>
+      <button class="lightbox-nav lightbox-prev" onclick="previousScreenshot()">❮</button>
+      <img id="lightbox-img" src="" alt="Full size screenshot" />
+      <button class="lightbox-nav lightbox-next" onclick="nextScreenshot()">❯</button>
+      <div class="lightbox-counter">
+        <span id="lightbox-current">1</span> / <span id="lightbox-total">1</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.v2.js?v=31"></script>
+</body>
+</html>

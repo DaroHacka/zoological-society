@@ -1,0 +1,20 @@
+# Video Game Archive - Requirements
+# Install with: pip install -r requirements.txt
+
+# Web Framework
+fastapi==0.129.0
+uvicorn==0.40.0
+python-multipart==0.0.22
+
+# Data Validation
+pydantic==2.12.5
+
+# Image Processing
+pillow==12.1.1
+
+# HTTP Requests
+requests==2.32.5
+
+# DuckDuckGo Image Search
+ddgs==9.10.0
+fake-useragent==2.2.0

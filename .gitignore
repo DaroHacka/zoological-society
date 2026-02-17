@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+backend.log
+frontend.log
+
+# Runtime files
+.init_pids
+.restart_count
+.zoological_society.conf
+
+# Database & User data
+db/
+covers/
+screenshots/
+metadata/
+theme_images/
+
+# Backups
+*.bak
+*.backup
+*_backup*

@@ -1,0 +1,64 @@
+# Zoological Society - Initialize Script
+
+## Quick Start
+
+### Option 1: Python Script (Recommended)
+```bash
+python Zoological_Society.py
+```
+
+This will:
+- Check if dependencies are installed
+- Start backend on port 9001
+- Start frontend on port 3021
+- Display your local IP for network access
+- Ask about auto-boot on first run
+
+### Option 2: Bash Script
+```bash
+./initialize
+```
+
+This will:
+- Start the backend (FastAPI) on port 9001
+- Start the frontend (HTTP server) on port 3021
+- Show live terminal output
+- Auto-restart if either server crashes
+
+## Access the Application
+
+When started, the script will display:
+```
+  Backend:  http://localhost:9001
+  Frontend: http://localhost:3021
+
+  ➤ To access from another device on your network, open:
+    http://192.168.1.X:3021
+```
+
+## Features
+
+- **Random Headers:** Displays random image from `/headers/` folder
+- **Auto-rotation:** Header changes every 2 hours automatically  
+- **Manual Refresh:** Click 🔄 button to change header anytime
+- **Custom Headers:** Upload your own in Theme & Layout
+- **Title Customization:** Click ✏️ to rename, ▼ to collapse
+- **Dark Theme:** Customizable colors in Theme & Layout
+
+## Stop the Servers
+
+Press **Ctrl+C** in the terminal running the script.
+
+## Troubleshooting
+
+### If ports are already in use:
+```bash
+pkill -f "python main.py"
+pkill -f "http.server 3021"
+```
+
+### Or change ports in the script:
+```bash
+BACKEND_PORT=9002
+FRONTEND_PORT=3022
+```
