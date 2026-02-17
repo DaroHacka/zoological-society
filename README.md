@@ -149,17 +149,7 @@ Or your preferred environment.
 ## 🖼️ Header System
 
 The project includes **39 ultra‑wide banners** designed for a rotating header system.  
-You can add your own images to `/headers/` — the app will automatically detect them.
-
----
-
-## 🧩 Roadmap (optional section — remove if you prefer)
-
-- Additional metadata sources  
-- Export/import archive  
-- Custom console icons  
-- Dark/light theme presets  
-- Multi‑language support  
+You can add your own images to `/headers/` — the app will automatically detect them. 
 
 ---
 
