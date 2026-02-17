@@ -2,13 +2,11 @@
 
 <img src="zoological logo.png" width="200" align="right" alt="Zoological Society Logo">
 # Zoological Society
+<br><br>
 
-Zoological Society is a clean, self‑contained cross‑platform archive system designed to help you organize consoles, computers, and games of any generation — from modern PCs to vintage platforms like the Amiga, ZX Spectrum, Commodore 64, or 486 — with style and flexibility.
-
-(…rest of README)
 *A lightweight, user‑friendly game archive with rotating themed headers, customizable visuals, and smart metadata fetching.*
 
-Zoological Society is a clean, self-contained cross-platform archive system designed to help you organize consoles, computers, and games of any generation — from modern PCs to vintage platforms like the Amiga, ZX Spectrum, Commodore 64 — with style and flexibility It blends simplicity with thoughtful UI touches: rotating banners, color themes, metadata fetching, genre filtering, and a smooth workflow for managing large collections.
+Zoological Society is especially designed for keeping track of the games you own across platforms and digital stores. Whether your library spans physical cartridges, retro computers, modern consoles, or multiple online storefronts, it gives you a clear overview of your entire collection. It helps you decide what to play next, avoid forgetting what you already own, and maintain a tidy, unified archive no matter how scattered your games are in real life.
 
 This project is built for people who want a personal archive that feels **beautiful**, **fast**, and **fully under their control**.
 
