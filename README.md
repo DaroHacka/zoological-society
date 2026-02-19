@@ -11,7 +11,7 @@ Zoological Society is especially designed for keeping track of the games you own
 This project is built for people who want a personal archive that feels **beautiful**, **fast**, and **fully under their control**.
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 133639.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 133639.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ---
@@ -27,7 +27,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 144240.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 144240.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ### 🎨 Graphic Customization
@@ -50,7 +50,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 140149.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 140149.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ### 📊 Status Filters & Stats
@@ -98,15 +98,15 @@ This project is built for people who want a personal archive that feels **beauti
 - Alphabetical index navigation  
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 140332.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 140332.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 141132.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 141132.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 <p align="center">
-  <img src="screenshots/Screenshot 2026-02-17 141148.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-02-17 141148.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ---
