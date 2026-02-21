@@ -60,6 +60,11 @@ let currentLightboxIndex = 0;
 let currentGameIndex = -1;
 let currentGamesList = [];
 
+// Description pagination state
+let currentDescriptionPage = 1;
+let totalDescriptionPages = 1;
+let currentGameStatus = null;
+
 // -----------------------------------------------------------
 // Lightbox for screenshots (with navigation)
 // -----------------------------------------------------------
@@ -371,12 +376,13 @@ async function onSaveGameEdit() {
     });
 
     // Save status
+    const completedNoteValue = document.getElementById("edit-completed-date").value.trim();
     const statusData = {
       is_favorite: document.getElementById("edit-status-favorite").checked,
       has_plan_to_play: document.getElementById("edit-status-plan-to-play").checked,
       is_playing: document.getElementById("edit-status-playing").checked,
       is_completed: document.getElementById("edit-status-completed").checked,
-      completed_date_note: document.getElementById("edit-completed-date").value.trim() || null,
+      completed_date_note: completedNoteValue || "",
       is_dropped: document.getElementById("edit-status-dropped").checked,
       is_on_hold: document.getElementById("edit-status-on-hold").checked
     };
@@ -386,8 +392,10 @@ async function onSaveGameEdit() {
     showToast("Game updated successfully!", "success");
     toggleModal("#modal-edit-game", false);
     
-    // Refresh the game detail and list
-    await loadGamesForConsole(currentConsoleId);
+    // Refresh the game detail and list (only if we have a console selected)
+    if (currentConsoleId) {
+      await loadGamesForConsole(currentConsoleId);
+    }
     await openGameDetail(gameId);
     loadStats();
   } catch (e) {
@@ -623,6 +631,38 @@ async function loadRecentlyViewed() {
   }
 }
 
+async function loadLastAdded() {
+  try {
+    const games = await apiCall("/recently-added?limit=10");
+    const container = $("#last-added-list");
+    
+    if (!games || games.length === 0) {
+      container.innerHTML = '<p class="no-items">No recently added games</p>';
+      return;
+    }
+    
+    container.innerHTML = "";
+    games.forEach(game => {
+      const div = document.createElement("div");
+      div.className = "recent-game-card";
+      div.onclick = () => navigateToGame(game.id, game.console_name);
+      
+      const coverUrl = game.cover_url ? toAbsoluteUrl(game.cover_url) : "";
+      const coverImg = coverUrl 
+        ? `<img src="${coverUrl}" alt="${game.title}" />`
+        : `<div class="no-cover-small" style="width:100px;height:150px;background:var(--card-bg);display:flex;align-items:center;justify-content:center;border-radius:var(--radius);">🎮</div>`;
+      
+      div.innerHTML = `
+        ${coverImg}
+        <div class="title">${game.title}</div>
+      `;
+      container.appendChild(div);
+    });
+  } catch (e) {
+    console.error("Failed to load last added:", e);
+  }
+}
+
 function goToHomepage() {
   currentConsoleId = null;
   activeFilter = null;
@@ -655,6 +695,7 @@ function renderHomepage() {
   // Load stats and recently viewed
   loadStats();
   loadRecentlyViewed();
+  loadLastAdded();
 }
 
 function showConsoleView() {
@@ -1024,6 +1065,7 @@ async function confirmAddGame() {
       
       // Refresh game list
       await loadGamesForConsole(currentConsoleId);
+      loadLastAdded();
       
     } catch (e) {
       showToast("Failed to add game", "error");
@@ -1059,6 +1101,7 @@ async function confirmAddGame() {
       
       // Refresh game list
       await loadGamesForConsole(currentConsoleId);
+      loadLastAdded();
       
     } catch (e) {
       showToast("Failed to add games", "error");
@@ -2024,16 +2067,14 @@ function renderGamesForCurrentConsole() {
   const container = $("#game-list");
   container.innerHTML = "";
 
-  if (!currentConsoleId) {
-    container.innerHTML = `<p>Select a console to see its games.</p>`;
-    return;
-  }
-
   let games;
   
-  // If status filter is active, use the pre-fetched status-filtered games
+  // If status filter is active, use the pre-fetched status-filtered games (even on homepage)
   if (activeStatusFilter && statusFilteredGames.length > 0) {
     games = statusFilteredGames.slice();
+  } else if (!currentConsoleId) {
+    container.innerHTML = `<p>Select a console to see its games.</p>`;
+    return;
   } else {
     games = (gamesByConsole[currentConsoleId] || [])
       .slice()
@@ -2149,8 +2190,15 @@ async function openGameDetail(gameId) {
     currentGameDetail = game;
     currentLightboxScreenshots = game.screenshots || [];
     
+    // Reset description pagination state
+    currentDescriptionPage = 1;
+    totalDescriptionPages = 1;
+    
     // Record that user viewed this game
     recordGameView(gameId);
+    
+    // Fetch game status for completed date/comment
+    currentGameStatus = await loadGameStatus(gameId);
     
     // Update game index for navigation
     currentGamesList = (gamesByConsole[currentConsoleId] || [])
@@ -2190,6 +2238,36 @@ async function openGameDetail(gameId) {
 function renderGameDetail(game) {
   const modal = $("#modal-game-detail");
   if (!modal) return;
+
+  // Calculate description pagination
+  const descriptionText = game.description || "No description available";
+  const charsPerPage = 800;
+  totalDescriptionPages = Math.max(1, Math.ceil(descriptionText.length / charsPerPage));
+  if (currentDescriptionPage > totalDescriptionPages) currentDescriptionPage = 1;
+  
+  const startIdx = (currentDescriptionPage - 1) * charsPerPage;
+  const endIdx = Math.min(startIdx + charsPerPage, descriptionText.length);
+  const currentDescription = descriptionText.slice(startIdx, endIdx);
+  
+  const descPaginationHtml = totalDescriptionPages > 1 
+    ? `<div class="desc-pagination">
+        <button onclick="changeDescriptionPage(-1)" ${currentDescriptionPage <= 1 ? 'disabled' : ''}>◀</button>
+        <span>${currentDescriptionPage}/${totalDescriptionPages}</span>
+        <button onclick="changeDescriptionPage(1)" ${currentDescriptionPage >= totalDescriptionPages ? 'disabled' : ''}>▶</button>
+      </div>`
+    : '';
+
+  // Check for completed status and note
+  const completedNote = currentGameStatus?.completed_date_note;
+  const hasCompletedNote = completedNote && completedNote.trim().length > 0;
+  const notePreview = hasCompletedNote ? getNotePreview(completedNote) : '';
+  
+  const completedHtml = hasCompletedNote
+    ? `<p class="game-detail-completed">
+        <span class="completed-indicator" data-note="${escapeHtml(completedNote)}" onclick="openCompletedCommentModal(this)" title="Click to view completion notes">✅</span>
+        <span class="completed-preview">${notePreview}</span>
+      </p>`
+    : '';
 
   const content = modal.querySelector(".modal-game-content");
   if (!content) return;
@@ -2249,9 +2327,9 @@ function renderGameDetail(game) {
         <div class="game-detail-info">
           <h2>${game.title}</h2>
           <p class="game-detail-genre"><strong>Genre:</strong> ${game.genre || "Unknown"}</p>
-          <p class="game-detail-desc"><strong>Description:</strong> ${
-            game.description || "No description available"
-          }</p>
+          <p class="game-detail-desc"><strong>Description:</strong> ${currentDescription}</p>
+          ${descPaginationHtml}
+          ${completedHtml}
         </div>
       </div>
       ${screenshotsHtml}
@@ -2272,6 +2350,8 @@ async function navigateToPrevGame() {
     const game = await apiCall(`/games/${prevGame.id}`);
     currentGameDetail = game;
     currentLightboxScreenshots = game.screenshots || [];
+    currentDescriptionPage = 1;
+    currentGameStatus = await loadGameStatus(prevGame.id);
     renderGameDetail(game);
   } catch (e) {
     showToast("Failed to load previous game", "error");
@@ -2288,10 +2368,48 @@ async function navigateToNextGame() {
     const game = await apiCall(`/games/${nextGame.id}`);
     currentGameDetail = game;
     currentLightboxScreenshots = game.screenshots || [];
+    currentDescriptionPage = 1;
+    currentGameStatus = await loadGameStatus(nextGame.id);
     renderGameDetail(game);
   } catch (e) {
     showToast("Failed to load next game", "error");
   }
+}
+
+function changeDescriptionPage(delta) {
+  const newPage = currentDescriptionPage + delta;
+  if (newPage >= 1 && newPage <= totalDescriptionPages) {
+    currentDescriptionPage = newPage;
+    renderGameDetail(currentGameDetail);
+  }
+}
+
+function getNotePreview(note) {
+  if (!note) return '';
+  const words = note.trim().split(/\s+/);
+  const previewWords = words.slice(0, 20);
+  let preview = previewWords.join(' ');
+  if (words.length > 20) {
+    preview += '...';
+  }
+  return preview;
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function openCompletedCommentModal(element) {
+  const note = element.getAttribute('data-note');
+  const content = $("#completed-comment-content");
+  content.innerHTML = `<div>${note}</div>`;
+  toggleModal("#modal-completed-comment", true);
 }
 
 // -----------------------------------------------------------
@@ -2432,6 +2550,7 @@ async function deleteGame(gameId, event) {
     // Reload games for current console
     await loadGamesForConsole(currentConsoleId);
     extractGenres();
+    await loadStats();
   } catch (error) {
     // Error already shown by apiCall
   }

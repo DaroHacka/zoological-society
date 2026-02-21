@@ -128,6 +128,14 @@
             </div>
           </div>
           
+          <!-- Last Added -->
+          <div class="homepage-section" id="last-added-section">
+            <h2>Last Added</h2>
+            <div class="recently-viewed-list" id="last-added-list">
+              <p class="no-items">No recently added games</p>
+            </div>
+          </div>
+          
           <!-- Get Started Guide (expandable) -->
           <div class="homepage-section get-started">
             <button class="get-started-toggle" onclick="toggleGetStarted()">
@@ -411,8 +419,8 @@
         </div>
       </label>
       <label id="completed-date-label" class="hidden">
-        Completed Date (personal note)
-        <input type="text" id="edit-completed-date" placeholder="e.g., Completed in 2024, finally finished!" />
+        Completion Notes (date + comments)
+        <textarea id="edit-completed-date" rows="4" placeholder="e.g., Completed 02/21/2026&#10;This game was amazing!&#10;Finally finished after 50 hours..."></textarea>
       </label>
       
       <div class="modal-actions">
@@ -465,6 +473,17 @@
       <div class="completed-games-list" id="completed-games-list"></div>
       <div class="modal-actions">
         <button onclick="toggleModal('#modal-completed-games', false)">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Completed Comment Modal -->
+  <div class="modal hidden" id="modal-completed-comment">
+    <div class="modal-content" style="max-width: 500px; max-height: 400px;">
+      <h2>Completion Notes</h2>
+      <div id="completed-comment-content" style="white-space: pre-wrap; overflow-y: auto; max-height: 300px; padding: 12px; background: var(--card-bg); border-radius: var(--radius);"></div>
+      <div class="modal-actions">
+        <button onclick="toggleModal('#modal-completed-comment', false)">Close</button>
       </div>
     </div>
   </div>
@@ -522,6 +541,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=31"></script>
+  <script src="app.v2.js?v=33"></script>
 </body>
 </html>

@@ -1474,6 +1474,110 @@ def search_games(q: str = Query(..., description="Search query")):
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail="Search failed")
 
+# -------------------------------------------------------------------
+# API: Games by Status
+# -------------------------------------------------------------------
+
+@app.get("/api/games/by-status", response_model=List[SearchResultGame])
+def get_all_games_by_status(status: str = Query(..., description="Status: favorite, playing, plan_to_play, completed, dropped, on_hold")):
+    """Get ALL games across all consoles filtered by status"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        status_map = {
+            "favorite": "is_favorite",
+            "playing": "is_playing",
+            "plan_to_play": "has_plan_to_play",
+            "completed": "is_completed",
+            "dropped": "is_dropped",
+            "on_hold": "is_on_hold"
+        }
+        
+        column = status_map.get(status)
+        if not column:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Invalid status")
+        
+        cur.execute(f"""
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
+            LEFT JOIN game_status gs ON g.id = gs.game_id
+            WHERE COALESCE(gs.{column}, 0) = 1
+            ORDER BY c.name, g.title;
+        """)
+        
+        rows = cur.fetchall()
+        conn.close()
+        
+        return [SearchResultGame(
+            id=r["id"],
+            title=r["title"],
+            genre=r["genre"],
+            cover_url=r["cover_url"],
+            console_name=r["console_name"]
+        ) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get all games by status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get games by status")
+
+
+@app.get("/api/consoles/{console_id}/games/by-status", response_model=List[SearchResultGame])
+def get_games_by_status(console_id: int, status: str = Query(..., description="Status: favorite, playing, plan_to_play, completed, dropped, on_hold")):
+    """Get games for a console filtered by status"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        # Verify console exists
+        cur.execute("SELECT id FROM consoles WHERE id = ?;", (console_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Console not found")
+        
+        # Map status to database column
+        status_map = {
+            "favorite": "is_favorite",
+            "playing": "is_playing",
+            "plan_to_play": "has_plan_to_play",
+            "completed": "is_completed",
+            "dropped": "is_dropped",
+            "on_hold": "is_on_hold"
+        }
+        
+        column = status_map.get(status)
+        if not column:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Invalid status")
+        
+        cur.execute(f"""
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
+            LEFT JOIN game_status gs ON g.id = gs.game_id
+            WHERE g.console_id = ? AND COALESCE(gs.{column}, 0) = 1
+            ORDER BY g.title;
+        """, (console_id,))
+        
+        rows = cur.fetchall()
+        conn.close()
+        
+        return [SearchResultGame(
+            id=r["id"],
+            title=r["title"],
+            genre=r["genre"],
+            cover_url=r["cover_url"],
+            console_name=r["console_name"]
+        ) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get games by status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get games by status")
+
 @app.get("/api/games/{game_id}", response_model=GameDetailResponse)
 def get_game_detail(game_id: int):
     """Get detailed information for a specific game"""
@@ -2820,23 +2924,23 @@ def get_stats():
         cur.execute("SELECT COUNT(*) as count FROM games")
         total_games = cur.fetchone()["count"]
         
-        # Status counts
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE is_completed = 1")
+        # Status counts (only count for games that actually exist)
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.is_completed = 1")
         completed_count = cur.fetchone()["count"]
         
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE is_favorite = 1")
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.is_favorite = 1")
         favorites_count = cur.fetchone()["count"]
         
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE is_playing = 1")
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.is_playing = 1")
         playing_count = cur.fetchone()["count"]
         
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE has_plan_to_play = 1")
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.has_plan_to_play = 1")
         plan_to_play_count = cur.fetchone()["count"]
         
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE is_dropped = 1")
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.is_dropped = 1")
         dropped_count = cur.fetchone()["count"]
         
-        cur.execute("SELECT COUNT(*) as count FROM game_status WHERE is_on_hold = 1")
+        cur.execute("SELECT COUNT(*) as count FROM game_status gs JOIN games g ON gs.game_id = g.id WHERE gs.is_on_hold = 1")
         on_hold_count = cur.fetchone()["count"]
         
         conn.close()
@@ -2933,110 +3037,6 @@ def get_completed_games():
         raise HTTPException(status_code=500, detail="Failed to get completed games")
 
 # -------------------------------------------------------------------
-# API: Games by Status
-# -------------------------------------------------------------------
-
-@app.get("/api/games/by-status", response_model=List[SearchResultGame])
-def get_all_games_by_status(status: str = Query(..., description="Status: favorite, playing, plan_to_play, completed, dropped, on_hold")):
-    """Get ALL games across all consoles filtered by status"""
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        
-        status_map = {
-            "favorite": "is_favorite",
-            "playing": "is_playing",
-            "plan_to_play": "has_plan_to_play",
-            "completed": "is_completed",
-            "dropped": "is_dropped",
-            "on_hold": "is_on_hold"
-        }
-        
-        column = status_map.get(status)
-        if not column:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Invalid status")
-        
-        cur.execute(f"""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
-            FROM games g
-            JOIN consoles c ON g.console_id = c.id
-            LEFT JOIN game_status gs ON g.id = gs.game_id
-            WHERE COALESCE(gs.{column}, 0) = 1
-            ORDER BY c.name, g.title;
-        """)
-        
-        rows = cur.fetchall()
-        conn.close()
-        
-        return [SearchResultGame(
-            id=r["id"],
-            title=r["title"],
-            genre=r["genre"],
-            cover_url=r["cover_url"],
-            console_name=r["console_name"]
-        ) for r in rows]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get all games by status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get games by status")
-
-
-@app.get("/api/consoles/{console_id}/games/by-status", response_model=List[SearchResultGame])
-def get_games_by_status(console_id: int, status: str = Query(..., description="Status: favorite, playing, plan_to_play, completed, dropped, on_hold")):
-    """Get games for a console filtered by status"""
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        
-        # Verify console exists
-        cur.execute("SELECT id FROM consoles WHERE id = ?;", (console_id,))
-        if not cur.fetchone():
-            conn.close()
-            raise HTTPException(status_code=404, detail="Console not found")
-        
-        # Map status to database column
-        status_map = {
-            "favorite": "is_favorite",
-            "playing": "is_playing",
-            "plan_to_play": "has_plan_to_play",
-            "completed": "is_completed",
-            "dropped": "is_dropped",
-            "on_hold": "is_on_hold"
-        }
-        
-        column = status_map.get(status)
-        if not column:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Invalid status")
-        
-        cur.execute(f"""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
-            FROM games g
-            JOIN consoles c ON g.console_id = c.id
-            LEFT JOIN game_status gs ON g.id = gs.game_id
-            WHERE g.console_id = ? AND COALESCE(gs.{column}, 0) = 1
-            ORDER BY g.title;
-        """, (console_id,))
-        
-        rows = cur.fetchall()
-        conn.close()
-        
-        return [SearchResultGame(
-            id=r["id"],
-            title=r["title"],
-            genre=r["genre"],
-            cover_url=r["cover_url"],
-            console_name=r["console_name"]
-        ) for r in rows]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get games by status: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get games by status")
-
-# -------------------------------------------------------------------
 # API: Game Status
 # -------------------------------------------------------------------
 
@@ -3118,7 +3118,8 @@ def update_game_status(game_id: int, data: GameStatusUpdate):
             params.append(1 if data.is_completed else 0)
         if data.completed_date_note is not None:
             updates.append("completed_date_note = ?")
-            params.append(data.completed_date_note if data.completed_date_note else None)
+            # Allow setting to empty string to clear the note, or set to the actual value
+            params.append(data.completed_date_note)
         if data.is_dropped is not None:
             updates.append("is_dropped = ?")
             params.append(1 if data.is_dropped else 0)
@@ -3177,6 +3178,39 @@ def get_recently_viewed(limit: int = Query(5, ge=1, le=20)):
     except Exception as e:
         logger.error(f"Failed to get recently viewed: {e}")
         raise HTTPException(status_code=500, detail="Failed to get recently viewed")
+
+# -------------------------------------------------------------------
+# API: Recently Added Games
+# -------------------------------------------------------------------
+
+@app.get("/api/recently-added", response_model=List[SearchResultGame])
+def get_recently_added(limit: int = Query(10, ge=1, le=50)):
+    """Get most recently added games"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
+            ORDER BY g.created_at DESC
+            LIMIT ?
+        """, (limit,))
+        
+        rows = cur.fetchall()
+        conn.close()
+        
+        return [SearchResultGame(
+            id=r["id"],
+            title=r["title"],
+            genre=r["genre"],
+            cover_url=r["cover_url"],
+            console_name=r["console_name"]
+        ) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get recently added: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get recently added games")
 
 @app.post("/api/games/{game_id}/view")
 def record_game_view(game_id: int):
