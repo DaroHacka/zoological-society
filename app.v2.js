@@ -481,6 +481,7 @@ async function applyStatusFilter(status) {
     // Toggle off
     activeStatusFilter = null;
     statusFilteredGames = [];
+    $("#recently-viewed-section").classList.remove("hidden");
   } else {
     activeStatusFilter = status;
     
@@ -494,6 +495,9 @@ async function applyStatusFilter(status) {
     } catch (e) {
       statusFilteredGames = [];
     }
+    
+    // Hide Recently Viewed when status filter is active
+    $("#recently-viewed-section").classList.add("hidden");
   }
   
   activeFilter = null;
@@ -533,6 +537,36 @@ function toggleStatusFilter() {
   } else {
     statusList.style.display = "none";
     icon.textContent = "▶";
+  }
+}
+
+function toggleConsoleList() {
+  const consoleList = $("#console-list");
+  const icon = $("#console-list-toggle-icon");
+  const collapsed = consoleList.style.display === "none";
+  
+  if (collapsed) {
+    consoleList.style.display = "block";
+    icon.textContent = "▼";
+    localStorage.setItem("consoleListCollapsed", "false");
+  } else {
+    consoleList.style.display = "none";
+    icon.textContent = "▶";
+    localStorage.setItem("consoleListCollapsed", "true");
+  }
+}
+
+function loadConsoleListState() {
+  const collapsed = localStorage.getItem("consoleListCollapsed") === "true";
+  const consoleList = $("#console-list");
+  const icon = $("#console-list-toggle-icon");
+  
+  if (collapsed) {
+    consoleList.style.display = "none";
+    icon.textContent = "▶";
+  } else {
+    consoleList.style.display = "block";
+    icon.textContent = "▼";
   }
 }
 
@@ -1416,18 +1450,21 @@ function renderConsoles() {
     li.dataset.id = c.id;
     li.className = c.id === currentConsoleId ? "active" : "";
     li.innerHTML = `
+      <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console">✏️</button>
       <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console">🗑️</button>
       <span class="console-name">${c.name}</span>
       <span class="console-count">${c.game_count} games</span>
     `;
     li.addEventListener("click", (e) => {
-      if (!e.target.classList.contains('delete-console-btn')) {
+      if (!e.target.classList.contains('delete-console-btn') && !e.target.classList.contains('edit-console-btn')) {
         selectConsole(c.id);
       }
     });
     list.appendChild(li);
   });
 }
+
+let editingConsoleId = null;
 
 async function onSaveConsole() {
   const name = $("#console-name-input").value.trim();
@@ -1445,35 +1482,66 @@ async function onSaveConsole() {
   }
 
   try {
-    const consoleData = { name };
-    if (path) {
-      consoleData.path = path;
+    if (editingConsoleId) {
+      const consoleData = { name, path: path || "" };
+      const updated = await apiCall(`/consoles/${editingConsoleId}`, {
+        method: "PUT",
+        body: JSON.stringify(consoleData),
+      });
+
+      const idx = consoles.findIndex(c => c.id === editingConsoleId);
+      if (idx !== -1) {
+        consoles[idx] = updated;
+      }
+
+      renderConsoles();
+      updateConsoleSummary();
+      showToast(`Console renamed to '${name}'!`, "success");
+    } else {
+      const consoleData = { name };
+      if (path) {
+        consoleData.path = path;
+      }
+      
+      const created = await apiCall("/consoles", {
+        method: "POST",
+        body: JSON.stringify(consoleData),
+      });
+
+      consoles.push(created);
+      gamesByConsole[created.id] = [];
+
+      currentConsoleId = created.id;
+      renderConsoles();
+      updateConsoleSummary();
+      await loadGamesForConsole(created.id);
+      
+      const msg = path 
+        ? `Console '${name}' added and ${created.game_count} games scanned!`
+        : `Console '${name}' created (empty). Use "Add Game" to add games.`;
+      showToast(msg, "success");
     }
-    
-    const created = await apiCall("/consoles", {
-      method: "POST",
-      body: JSON.stringify(consoleData),
-    });
-
-    consoles.push(created);
-    gamesByConsole[created.id] = [];
-
-    currentConsoleId = created.id;
-    renderConsoles();
-    updateConsoleSummary();
-    await loadGamesForConsole(created.id);
-    
-    const msg = path 
-      ? `Console '${name}' added and ${created.game_count} games scanned!`
-      : `Console '${name}' created (empty). Use "Add Game" to add games.`;
-    showToast(msg, "success");
     
     toggleModal("#modal-console", false);
     $("#console-name-input").value = "";
     $("#console-path-input").value = "";
+    $("#btn-console-save").textContent = "Save";
+    editingConsoleId = null;
   } catch (e) {
     // Error already shown by apiCall
   }
+}
+
+function editConsole(id, event) {
+  event.stopPropagation();
+  const console = consoles.find(c => c.id === id);
+  if (!console) return;
+
+  editingConsoleId = id;
+  $("#console-name-input").value = console.name;
+  $("#console-path-input").value = console.path;
+  $("#btn-console-save").textContent = "Rename";
+  toggleModal("#modal-console", true);
 }
 
 // -----------------------------------------------------------
@@ -2758,6 +2826,7 @@ async function applyRandomHeaderOnLoad() {
 // -----------------------------------------------------------
 function initExtraFeatures() {
   loadTitleCollapseState();
+  loadConsoleListState();
   loadCustomTitle();
   applyRandomHeaderOnLoad();
 }

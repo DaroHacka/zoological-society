@@ -1091,6 +1091,48 @@ def add_console(console: ConsoleBase):
         raise HTTPException(status_code=500, detail=f"Failed to add console: {str(e)}")
 
 # -------------------------------------------------------------------
+# API: Update console
+# -------------------------------------------------------------------
+
+@app.put("/api/consoles/{console_id}", response_model=ConsoleResponse)
+def update_console(console_id: int, console: ConsoleBase):
+    """Update a console's name"""
+    try:
+        if not console.name or not console.name.strip():
+            raise HTTPException(status_code=400, detail="Console name cannot be empty")
+        
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT id, path FROM consoles WHERE id = ?;", (console_id,))
+        existing = cur.fetchone()
+        
+        if not existing:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Console not found")
+        
+        _, path = existing
+        
+        cur.execute(
+            "UPDATE consoles SET name = ? WHERE id = ?;",
+            (console.name.strip(), console_id),
+        )
+        conn.commit()
+        
+        cur.execute("SELECT COUNT(*) FROM games WHERE console_id = ?;", (console_id,))
+        game_count = cur.fetchone()[0]
+        
+        conn.close()
+        logger.info(f"Console updated: ID {console_id} -> {console.name}")
+        
+        return ConsoleResponse(id=console_id, name=console.name, path=path, game_count=game_count)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update console: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update console: {str(e)}")
+
+# -------------------------------------------------------------------
 # API: Scan console folder
 # -------------------------------------------------------------------
 
