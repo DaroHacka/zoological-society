@@ -2825,12 +2825,12 @@ async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
             logger.error(f"Failed to open image: {e}")
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-        index = cur.fetchone()[0]
-        
-        local_screenshot = save_screenshot(img, game_id, index)
+         conn = get_conn()
+         cur = conn.cursor()
+         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
+         index = cur.fetchone()[0] + 1
+         
+         local_screenshot = save_screenshot(img, game_id, index)
         if not local_screenshot:
             conn.close()
             raise HTTPException(status_code=500, detail="Failed to save screenshot")
@@ -2870,16 +2870,16 @@ def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
             conn.close()
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_SCREENSHOTS_PER_GAME} screenshots allowed per game")
         
-        url = data.url
-        if not url:
-            conn.close()
-            raise HTTPException(status_code=400, detail="URL is required")
-        
-        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-        index = cur.fetchone()[0]
-        conn.close()
-        
-        img = download_image(url)
+         url = data.url
+         if not url:
+             conn.close()
+             raise HTTPException(status_code=400, detail="URL is required")
+         
+         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
+         index = cur.fetchone()[0] + 1
+         conn.close()
+         
+         img = download_image(url)
         if not img:
             raise HTTPException(status_code=400, detail="Failed to download image from URL")
         
