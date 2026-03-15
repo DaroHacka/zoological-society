@@ -49,9 +49,10 @@
         </ul>
 
         <!-- Genre Filter -->
-        <div id="genre-filter-section" style="margin-top: 24px; display: none;">
+        <div id="genre-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
           <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleGenreFilter()">
             📂 Genres <span id="genre-toggle-icon">▶</span>
+            <span id="genre-edit-btn" class="genre-edit-btn hidden" onclick="event.stopPropagation(); toggleGenreEditMode()" title="Edit Genres">⚙️</span>
           </h3>
           <ul id="genre-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <!-- Filled by JS -->
@@ -59,8 +60,8 @@
         </div>
 
         <!-- Status Filter -->
-        <div id="status-filter-section" style="margin-top: 24px;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleStatusFilter()">Status <span id="status-toggle-icon">▶</span></h3>
+        <div id="status-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleStatusFilter()">🎯 Status <span id="status-toggle-icon">▶</span></h3>
           <ul id="status-filter-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <li data-status="favorite" class="status-filter-item" onclick="applyStatusFilter('favorite')">⭐ Favorites <span class="count" id="count-favorite">0</span></li>
             <li data-status="playing" class="status-filter-item" onclick="applyStatusFilter('playing')">🎮 Playing <span class="count" id="count-playing">0</span></li>
@@ -85,18 +86,6 @@
             <div class="global-search">
               <input type="text" id="global-search-input" placeholder="Search all games across all consoles..." />
               <button id="global-search-btn">Search</button>
-            </div>
-            
-            <!-- RAWG API Key Input -->
-            <div class="rawg-api-section">
-              <div class="rawg-api-content">
-                <label for="rawg-api-key">RAWG API Key (optional)</label>
-                <div class="rawg-api-input-group">
-                  <input type="text" id="rawg-api-key" placeholder="Paste your RAWG API key here" />
-                  <button id="btn-save-rawg-key">Save</button>
-                </div>
-                <small>Until you provide a key, covers and metadata will rely solely on DuckDuckGo. <a href="https://rawg.io/apidocs" target="_blank">Get a free API key here</a></small>
-              </div>
             </div>
           </div>
           
@@ -144,64 +133,23 @@
             </button>
             <div class="get-started-content" id="get-started-content">
               <h3>Welcome to Your Game Archive!</h3>
-              <p>This is your personal digital vault for organizing and exploring your video game collection. The database starts completely empty - you build it from your own game files!</p>
+              <p>This is your personal digital vault for organizing and exploring your video game collection.</p>
               
-              <h4>Option 1: Add Console from Folder</h4>
+              <h4>Getting Started</h4>
               <ol>
-                <li>Click <strong>"Add console"</strong> in the top right</li>
-                <li>Select <strong>"Add from folder"</strong></li>
-                <li>Enter a name (e.g., "Nintendo Switch", "SNES", "Commodore 64")</li>
-                <li>Enter the full path to your ROMs folder</li>
-                <li>Click <strong>"Add Console"</strong> - games will be scanned automatically</li>
+                <li><strong>Add a Console:</strong> Click "Add console" in the top right to add your first game folder. You'll need to specify a name (e.g., "Nintendo Switch") and the absolute path to your ROMs folder.</li>
+                <li><strong>Scan for Games:</strong> Once a console is added, click "Rescan folder" to discover all games in that folder. The system will automatically detect game files based on their extension (.nsp, .xci, .iso, etc.).</li>
+                <li><strong>Fetch Metadata:</strong> Use "Fetch Text Metadata" to pull game descriptions from online databases. "Fetch Covers" and "Fetch Screenshots" will download box art and screenshots.</li>
+                <li><strong>Organize Your Collection:</strong> Mark games as favorites, track your progress (Playing, Completed, Plan to Play, Dropped, On Hold), and use filters to find specific games.</li>
               </ol>
-              
-              <h4>Option 2: Create Empty Console (Manual Entry)</h4>
-              <ol>
-                <li>Click <strong>"Add console"</strong> in the top right</li>
-                <li>Select <strong>"Create empty console"</strong></li>
-                <li>Enter a name (e.g., "PlayStation 2", "NES", "My Favorites")</li>
-                <li>Click <strong>"Add Console"</strong></li>
-                <li>Use <strong>"Add Game"</strong> button to add games manually:</li>
-                <ul>
-                  <li><strong>Single Game:</strong> Enter one game title at a time</li>
-                  <li><strong>Paste List:</strong> Paste multiple game names (one per line)</li>
-                </ul>
-              </ol>
-              
-              <h4>Supported Consoles & File Types</h4>
-              <p>The program supports many console ROM formats:</p>
-              <ul>
-                <li><strong>Nintendo:</strong> Switch (.nsp, .xci), Wii/GameCube (.iso, .wbfs), DS (.nds), 3DS (.3ds, .cia), Game Boy (.gb, .gbc, .gba), NES (.nes), SNES (.snes, .smc)</li>
-                <li><strong>Sony:</strong> PlayStation (.iso, .bin, .cue), PSP (.pbp)</li>
-                <li><strong>Microsoft:</strong> Xbox (.iso, .xex), Xbox 360 (.iso, .xex)</li>
-                <li><strong>Sega:</strong> Dreamcast, Genesis (.smd, .md, .gen)</li>
-                <li><strong>Atari:</strong> Various (.a26, .a52, .a78)</li>
-                <li><strong>Commodore:</strong> C64 (.d64, .crt, .prg)</li>
-                <li><strong>Archives:</strong> .zip, .rar, .7z</li>
-              </ul>
-              
-              <h4>Fetching Metadata & Covers</h4>
-              <ul>
-                <li><strong>Fetch Text Metadata:</strong> Gets game descriptions from Wikipedia</li>
-                <li><strong>Fetch Covers:</strong> Downloads box art (from RAWG or DuckDuckGo)</li>
-                <li><strong>Fetch Screenshots:</strong> Downloads game screenshots</li>
-              </ul>
-              
-              <h4>Important Tips</h4>
-              <ul>
-                <li><strong>Game Names:</strong> For best results with text metadata, provide the correct game title. Sometimes you'll need to edit the title manually if the automatic detection fails.</li>
-                <li><strong>DuckDuckGo Timeouts:</strong> Sometimes DuckDuckGo may temporarily timeout. If a cover fails to fetch, wait a few seconds and try again - it's usually a temporary issue.</li>
-                <li><strong>RAWG API Key:</strong> Adding your own RAWG API key (free at rawg.io/apidocs) improves cover/metadata quality. Without it, the program uses DuckDuckGo only.</li>
-              </ul>
               
               <h4>Features</h4>
               <ul>
-                <li><strong>Browse by Console:</strong> Games organized by platform in sidebar</li>
-                <li><strong>Global Search:</strong> Search across your entire collection</li>
+                <li><strong>Browse by Console:</strong> Games are organized by platform in the sidebar</li>
+                <li><strong>Global Search:</strong> Search across your entire collection using the search bar above</li>
                 <li><strong>Genre Filters:</strong> Filter games by genre within each console</li>
-                <li><strong>Status Tracking:</strong> Track progress (Playing, Completed, Plan to Play, Dropped, On Hold)</li>
-                <li><strong>Favorites:</strong> Mark games as favorites for quick access</li>
-                <li><strong>Visual Gallery:</strong> View box covers and screenshots</li>
+                <li><strong>Status Tracking:</strong> Track your gaming progress with status options</li>
+                <li><strong>Visual Gallery:</strong> View box covers and screenshots for each game</li>
               </ul>
               
               <h4>Keyboard Shortcuts</h4>
@@ -258,7 +206,6 @@
     <div class="modal-content">
       <h2>Add console</h2>
       
-      <!-- Console Type Selection -->
       <div class="console-type-selector">
         <label class="radio-label">
           <input type="radio" name="console-type" value="folder" checked onchange="toggleConsoleType()" />
@@ -299,26 +246,25 @@
         Accent color
         <input type="color" id="theme-accent-color" value="#ffb400" />
       </label>
-      
-      <!-- Current header preview -->
       <div id="theme-current-header" class="theme-current-header hidden">
-        <img id="theme-current-header-img" src="" alt="Current header" />
-        <button type="button" id="btn-theme-remove-header" class="secondary">Remove</button>
+        <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted);">Current header image:</p>
+        <div style="position: relative; display: inline-block;">
+          <img id="theme-current-header-img" src="" alt="Current header" style="max-width: 100%; max-height: 120px; border-radius: 4px;" />
+          <button type="button" id="btn-theme-remove-header" style="position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8rem;">Remove</button>
+        </div>
       </div>
-      
       <label>
         Header image URL (optional)
         <input type="text" id="theme-header-image" placeholder="https://..." />
       </label>
+      <div style="margin: 12px 0; text-align: center; color: var(--text-muted);">— or —</div>
       <label>
-        Upload header image
+        Upload header image from disk
         <input type="file" id="theme-header-upload" accept="image/*" />
       </label>
-      
       <div class="theme-header-actions">
         <button type="button" id="btn-theme-random-header" class="secondary">🔄 Random Header</button>
       </div>
-      
       <div class="modal-actions">
         <button id="btn-theme-cancel">Cancel</button>
         <button id="btn-theme-save">Save</button>
@@ -537,6 +483,54 @@ Spyro the Dragon"></textarea>
       <button class="lightbox-nav lightbox-next" onclick="nextScreenshot()">❯</button>
       <div class="lightbox-counter">
         <span id="lightbox-current">1</span> / <span id="lightbox-total">1</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Genre Edit Modal -->
+  <div class="modal hidden" id="modal-genre-edit">
+    <div class="modal-content">
+      <h2>Edit Genres</h2>
+      
+      <!-- Collapsed Count Setting -->
+      <div class="genre-edit-section">
+        <label class="genre-edit-label">
+          Labels shown when collapsed:
+          <input type="number" id="genre-collapsed-count" min="1" max="10" value="5" />
+        </label>
+      </div>
+      
+      <!-- Highlight Labels -->
+      <div class="genre-edit-section">
+        <h3>Highlight Labels</h3>
+        <p class="genre-edit-hint">Click labels to toggle highlight</p>
+        <div id="genre-highlight-list" class="genre-edit-list"></div>
+      </div>
+      
+      <!-- Groups -->
+      <div class="genre-edit-section">
+        <h3>Groups</h3>
+        <div id="genre-groups-list" class="genre-groups-list"></div>
+        <button id="btn-create-group" class="secondary" onclick="openGroupPanel()">+ Create Group</button>
+      </div>
+      
+      <!-- Group Creation/Edit Panel -->
+      <div id="genre-group-panel" class="genre-group-panel hidden">
+        <h4 id="group-panel-title">Create Group</h4>
+        <label>
+          Group Name
+          <input type="text" id="group-name-input" placeholder="e.g., Favorites" />
+        </label>
+        <p class="genre-edit-hint">Select genres to add to this group:</p>
+        <div id="group-genres-list" class="genre-edit-list"></div>
+        <div class="modal-actions">
+          <button onclick="cancelGroupEdit()">Cancel</button>
+          <button id="btn-save-group" onclick="saveGroup()">Save Group</button>
+        </div>
+      </div>
+      
+      <div class="modal-actions">
+        <button onclick="toggleGenreEditMode()">Done</button>
       </div>
     </div>
   </div>

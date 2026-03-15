@@ -1,7 +1,7 @@
 // -------------------------------------------------------------
 // Backend base URL (dynamic based on current hostname)
 // -------------------------------------------------------------
-const API_HOST = window.location.hostname + ":9001";
+const API_HOST = window.location.hostname + ":9000";
 const API = "http://" + API_HOST + "/api";
 
 // Static files base URL
@@ -441,25 +441,382 @@ function extractGenres() {
   renderGenreFilter();
 }
 
+// -----------------------------------------------------------
+// Genre Edit Mode
+// -----------------------------------------------------------
+
+let genreEditMode = false;
+let editingGroupId = null;
+
+let genreOrganization = {
+  highlighted: [],
+  groups: [],
+  collapsedCount: 5,
+  expandedChars: {}
+};
+
+function getGenreOrgKey() {
+  return `genre_organization_${currentConsoleId || 'global'}`;
+}
+
+function loadGenreOrganization() {
+  try {
+    const saved = localStorage.getItem(getGenreOrgKey());
+    if (saved) {
+      genreOrganization = JSON.parse(saved);
+    } else {
+      genreOrganization = {
+        highlighted: [],
+        groups: [],
+        collapsedCount: 5,
+        expandedChars: {}
+      };
+    }
+  } catch (e) {
+    genreOrganization = {
+      highlighted: [],
+      groups: [],
+      collapsedCount: 5,
+      expandedChars: {}
+    };
+  }
+}
+
+function saveGenreOrganization() {
+  try {
+    localStorage.setItem(getGenreOrgKey(), JSON.stringify(genreOrganization));
+  } catch (e) {
+    console.error('Failed to save genre organization:', e);
+  }
+}
+
+function showGenreEditButton() {
+  const editBtn = document.getElementById('genre-edit-btn');
+  if (currentConsoleId && genres && genres.length > 0) {
+    editBtn.classList.remove('hidden');
+  } else {
+    editBtn.classList.add('hidden');
+  }
+}
+
+function toggleGenreEditMode() {
+  genreEditMode = !genreEditMode;
+  if (genreEditMode) {
+    loadGenreOrganization();
+    renderGenreEditPanel();
+    toggleModal('#modal-genre-edit', true);
+  } else {
+    toggleModal('#modal-genre-edit', false);
+    renderGenreFilter();
+  }
+}
+
+function getFirstChar(genre) {
+  const first = genre.charAt(0).toUpperCase();
+  return /[A-Z]/.test(first) ? first : '#';
+}
+
+function groupGenresByFirstChar(genreList) {
+  const groups = {};
+  genreList.forEach(genre => {
+    const char = getFirstChar(genre);
+    if (!groups[char]) {
+      groups[char] = [];
+    }
+    groups[char].push(genre);
+  });
+  
+  Object.keys(groups).forEach(char => {
+    groups[char].sort((a, b) => a.localeCompare(b));
+  });
+  
+  return groups;
+}
+
 function renderGenreFilter() {
   const section = document.getElementById("genre-filter-section");
   const genreList = document.getElementById("genre-list");
   
   if (genres.length === 0) {
     section.style.display = "none";
+    showGenreEditButton();
     return;
   }
   
   section.style.display = "block";
+  showGenreEditButton();
+  
   genreList.innerHTML = "";
   
-  genres.forEach((genre) => {
-    const li = document.createElement("li");
-    li.className = genre === activeGenreFilter ? "active" : "";
-    li.textContent = genre;
-    li.addEventListener("click", () => applyGenreFilter(genre));
-    genreList.appendChild(li);
+  loadGenreOrganization();
+  
+  const allGenres = [...genres].sort((a, b) => a.localeCompare(b));
+  const groupedGenres = groupGenresByFirstChar(allGenres);
+  
+  const chars = Object.keys(groupedGenres).sort((a, b) => {
+    if (a === '#') return 1;
+    if (b === '#') return -1;
+    return a.localeCompare(b);
   });
+  
+  const groupedGenreNames = new Set();
+  genreOrganization.groups.forEach(g => g.genres.forEach(ng => groupedGenreNames.add(ng)));
+  
+  let groupIndex = 0;
+  const totalGroups = genreOrganization.groups.length;
+  
+  function renderGroupSection(group) {
+    const groupItem = document.createElement("li");
+    groupItem.className = "genre-group-item";
+    
+    const isExpanded = genreOrganization.expandedChars[`group_${group.id}`] !== false;
+    
+    const header = document.createElement("div");
+    header.className = `genre-group-header ${isExpanded ? 'expanded' : ''}`;
+    header.innerHTML = `
+      <span class="expand-icon">▶</span>
+      <span>${group.name}</span>
+      <span class="group-count">${group.genres.length}</span>
+    `;
+    header.onclick = () => toggleGroupExpansion(group.id);
+    
+    const items = document.createElement("div");
+    items.className = `genre-group-items ${isExpanded ? '' : 'collapsed'}`;
+    
+    group.genres.forEach(genre => {
+      const li = document.createElement("li");
+      li.className = genre === activeGenreFilter ? "active" : "";
+      li.textContent = genre;
+      li.addEventListener("click", () => applyGenreFilter(genre));
+      items.appendChild(li);
+    });
+    
+    groupItem.appendChild(header);
+    groupItem.appendChild(items);
+    return groupItem;
+  }
+  
+  if (genreOrganization.groups.length > 0) {
+    genreOrganization.groups.forEach(group => {
+      genreList.appendChild(renderGroupSection(group));
+    });
+  }
+  
+  chars.forEach(char => {
+    const charGenres = groupedGenres[char];
+    const isExpanded = genreOrganization.expandedChars[char] === true;
+    const collapsedCount = genreOrganization.collapsedCount;
+    
+    const highlightedInChar = charGenres.filter(g => genreOrganization.highlighted.includes(g));
+    const regularInChar = charGenres.filter(g => !genreOrganization.highlighted.includes(g));
+    
+    let displayGenres;
+    if (isExpanded) {
+      displayGenres = charGenres;
+    } else {
+      const combined = [...highlightedInChar, ...regularInChar];
+      displayGenres = combined.slice(0, collapsedCount);
+    }
+    
+    const groupCharItem = document.createElement("li");
+    groupCharItem.className = "genre-char-group";
+    
+    const header = document.createElement("div");
+    header.className = `genre-char-header ${isExpanded ? 'expanded' : ''}`;
+    header.innerHTML = `
+      <span class="expand-icon">▶</span>
+      <span>${char}</span>
+      <span class="char-count">${charGenres.length}</span>
+    `;
+    header.onclick = () => toggleCharExpansion(char);
+    
+    const items = document.createElement("div");
+    items.className = `genre-char-items ${isExpanded ? '' : 'collapsed'}`;
+    
+    displayGenres.forEach(genre => {
+      if (!groupedGenreNames.has(genre)) {
+        const li = document.createElement("li");
+        li.className = genre === activeGenreFilter ? "active" : "";
+        li.classList.toggle("highlighted", genreOrganization.highlighted.includes(genre));
+        li.textContent = genre;
+        li.addEventListener("click", () => applyGenreFilter(genre));
+        items.appendChild(li);
+      }
+    });
+    
+    if (items.children.length > 0 || !isExpanded) {
+      groupCharItem.appendChild(header);
+      groupCharItem.appendChild(items);
+      genreList.appendChild(groupCharItem);
+    }
+  });
+}
+
+function toggleCharExpansion(char) {
+  loadGenreOrganization();
+  genreOrganization.expandedChars[char] = !genreOrganization.expandedChars[char];
+  saveGenreOrganization();
+  renderGenreFilter();
+}
+
+function toggleGroupExpansion(groupId) {
+  loadGenreOrganization();
+  genreOrganization.expandedChars[`group_${groupId}`] = !genreOrganization.expandedChars[`group_${groupId}`];
+  saveGenreOrganization();
+  renderGenreFilter();
+}
+
+function renderGenreEditPanel() {
+  loadGenreOrganization();
+  
+  document.getElementById('genre-collapsed-count').value = genreOrganization.collapsedCount;
+  document.getElementById('genre-collapsed-count').onchange = function() {
+    const val = parseInt(this.value) || 5;
+    genreOrganization.collapsedCount = Math.max(1, Math.min(10, val));
+    saveGenreOrganization();
+  };
+  
+  const highlightList = document.getElementById('genre-highlight-list');
+  highlightList.innerHTML = '';
+  
+  const allGenres = [...genres].sort((a, b) => a.localeCompare(b));
+  const groupedGenreNames = new Set();
+  genreOrganization.groups.forEach(g => g.genres.forEach(ng => groupedGenreNames.add(ng)));
+  
+  allGenres.forEach(genre => {
+    if (!groupedGenreNames.has(genre)) {
+      const span = document.createElement('span');
+      span.className = `genre-checkbox ${genreOrganization.highlighted.includes(genre) ? 'checked' : ''}`;
+      span.textContent = genre;
+      span.onclick = () => {
+        toggleGenreHighlight(genre);
+        span.classList.toggle('checked');
+      };
+      highlightList.appendChild(span);
+    }
+  });
+  
+  renderGroupsList();
+  document.getElementById('genre-group-panel').classList.add('hidden');
+}
+
+function toggleGenreHighlight(genre) {
+  loadGenreOrganization();
+  const idx = genreOrganization.highlighted.indexOf(genre);
+  if (idx > -1) {
+    genreOrganization.highlighted.splice(idx, 1);
+  } else {
+    genreOrganization.highlighted.push(genre);
+  }
+  saveGenreOrganization();
+}
+
+function renderGroupsList() {
+  const groupsList = document.getElementById('genre-groups-list');
+  groupsList.innerHTML = '';
+  
+  genreOrganization.groups.forEach(group => {
+    const item = document.createElement('div');
+    item.className = 'genre-group-edit-item';
+    item.innerHTML = `
+      <span class="group-name">${group.name} (${group.genres.length})</span>
+      <div class="group-actions">
+        <button onclick="editGroup('${group.id}')" title="Edit">✏️</button>
+        <button onclick="deleteGroup('${group.id}')" title="Delete">🗑️</button>
+      </div>
+    `;
+    groupsList.appendChild(item);
+  });
+}
+
+function openGroupPanel(groupId = null) {
+  editingGroupId = groupId;
+  const panel = document.getElementById('genre-group-panel');
+  const title = document.getElementById('group-panel-title');
+  const nameInput = document.getElementById('group-name-input');
+  const genresList = document.getElementById('group-genres-list');
+  
+  panel.classList.remove('hidden');
+  
+  if (groupId) {
+    const group = genreOrganization.groups.find(g => g.id === groupId);
+    title.textContent = 'Edit Group';
+    nameInput.value = group.name;
+  } else {
+    title.textContent = 'Create Group';
+    nameInput.value = '';
+  }
+  
+  const allGenres = [...genres].sort((a, b) => a.localeCompare(b));
+  const existingGroupGenres = groupId 
+    ? (genreOrganization.groups.find(g => g.id === groupId)?.genres || [])
+    : [];
+  
+  genresList.innerHTML = '';
+  allGenres.forEach(genre => {
+    const span = document.createElement('span');
+    span.className = `genre-checkbox ${existingGroupGenres.includes(genre) ? 'checked' : ''}`;
+    span.textContent = genre;
+    span.onclick = () => {
+      span.classList.toggle('checked');
+    };
+    genresList.appendChild(span);
+  });
+}
+
+function cancelGroupEdit() {
+  document.getElementById('genre-group-panel').classList.add('hidden');
+  editingGroupId = null;
+}
+
+function saveGroup() {
+  const nameInput = document.getElementById('group-name-input');
+  const name = nameInput.value.trim();
+  
+  if (!name) {
+    alert('Please enter a group name');
+    return;
+  }
+  
+  const selectedGenres = [];
+  document.querySelectorAll('#group-genres-list .genre-checkbox.checked').forEach(span => {
+    selectedGenres.push(span.textContent);
+  });
+  
+  loadGenreOrganization();
+  
+  if (editingGroupId) {
+    const group = genreOrganization.groups.find(g => g.id === editingGroupId);
+    if (group) {
+      group.name = name;
+      group.genres = selectedGenres;
+    }
+  } else {
+    const newGroup = {
+      id: 'group_' + Date.now(),
+      name: name,
+      genres: selectedGenres
+    };
+    genreOrganization.groups.push(newGroup);
+  }
+  
+  saveGenreOrganization();
+  renderGenreEditPanel();
+}
+
+function editGroup(groupId) {
+  openGroupPanel(groupId);
+}
+
+function deleteGroup(groupId) {
+  if (!confirm('Delete this group? The genres will return to the general list.')) {
+    return;
+  }
+  
+  loadGenreOrganization();
+  genreOrganization.groups = genreOrganization.groups.filter(g => g.id !== groupId);
+  saveGenreOrganization();
+  renderGenreEditPanel();
 }
 
 function applyGenreFilter(genre) {
@@ -601,7 +958,7 @@ async function loadStats() {
 
 async function loadRecentlyViewed() {
   try {
-    const games = await apiCall("/recently-viewed?limit=5");
+    const games = await apiCall("/recently-viewed?limit=10");
     const container = $("#recently-viewed-list");
     
     if (!games || games.length === 0) {
@@ -708,6 +1065,7 @@ function showConsoleView() {
   $(".console-summary").style.display = "flex";
   $(".alpha-index").style.display = "block";
   $(".metadata-actions").style.display = "flex";
+  $("#game-list").style.display = "grid";
 }
 
 // -----------------------------------------------------------
@@ -795,7 +1153,7 @@ function clearSearch() {
   
   // Hide search results, show appropriate view
   $("#search-results").classList.add("hidden");
-  $("#game-list").style.display = "block";
+  $("#game-list").style.display = "grid";
   
   // Return to previous view
   if (currentConsoleId) {
@@ -1221,43 +1579,6 @@ function initLightboxHandlers() {
 }
 
 // -----------------------------------------------------------
-// Console Type Toggle
-// -----------------------------------------------------------
-function toggleConsoleType() {
-  const consoleType = document.querySelector('input[name="console-type"]:checked').value;
-  const pathLabel = document.getElementById("console-path-label");
-  
-  if (consoleType === "empty") {
-    pathLabel.classList.add("hidden");
-  } else {
-    pathLabel.classList.remove("hidden");
-  }
-}
-
-// -----------------------------------------------------------
-// RAWG API Key
-// -----------------------------------------------------------
-function saveRawgApiKey() {
-  const keyInput = document.getElementById("rawg-api-key");
-  const apiKey = keyInput.value.trim();
-  
-  if (apiKey) {
-    localStorage.setItem("rawg_api_key", apiKey);
-    showToast("RAWG API key saved! Refresh to use it.", "success");
-  } else {
-    showToast("Please enter an API key", "warning");
-  }
-}
-
-// Load RAWG key from localStorage on startup
-function loadRawgApiKey() {
-  const savedKey = localStorage.getItem("rawg_api_key");
-  if (savedKey) {
-    document.getElementById("rawg-api-key").value = savedKey;
-  }
-}
-
-// -----------------------------------------------------------
 // UI binding
 // -----------------------------------------------------------
 function bindUI() {
@@ -1278,15 +1599,6 @@ function bindUI() {
   const screenshotSaveBtn = document.getElementById("btn-screenshot-save");
   const editCancelBtn = document.getElementById("btn-edit-cancel");
   const editSaveBtn = document.getElementById("btn-edit-save");
-  const rawgKeyBtn = document.getElementById("btn-save-rawg-key");
-
-  // RAWG API key save
-  if (rawgKeyBtn) {
-    rawgKeyBtn.addEventListener("click", saveRawgApiKey);
-  }
-  
-  // Load saved RAWG key
-  loadRawgApiKey();
 
   if (addGameBtn) {
     addGameBtn.addEventListener("click", () => {
@@ -1296,6 +1608,8 @@ function bindUI() {
 
   if (addConsoleBtn) {
     addConsoleBtn.addEventListener("click", () => {
+      document.querySelector('input[name="console-type"][value="folder"]').checked = true;
+      toggleConsoleType();
       toggleModal("#modal-console", true);
     });
   }
@@ -1313,9 +1627,11 @@ function bindUI() {
   }
 
   if (consoleCancelBtn) {
-    consoleCancelBtn.addEventListener("click", () =>
-      toggleModal("#modal-console", false)
-    );
+    consoleCancelBtn.addEventListener("click", () => {
+      document.querySelector('input[name="console-type"][value="folder"]').checked = true;
+      toggleConsoleType();
+      toggleModal("#modal-console", false);
+    });
   }
 
   if (themeCancelBtn) {
@@ -1332,12 +1648,12 @@ function bindUI() {
     themeSaveBtn.addEventListener("click", onSaveTheme);
   }
 
-  const themeRemoveHeaderBtn = document.getElementById("btn-theme-remove-header");
+  const themeRemoveHeaderBtn = $("#btn-theme-remove-header");
   if (themeRemoveHeaderBtn) {
     themeRemoveHeaderBtn.addEventListener("click", onRemoveThemeHeader);
   }
 
-  const themeRandomHeaderBtn = document.getElementById("btn-theme-random-header");
+  const themeRandomHeaderBtn = $("#btn-theme-random-header");
   if (themeRandomHeaderBtn) {
     themeRandomHeaderBtn.addEventListener("click", onRandomHeader);
   }
@@ -1427,24 +1743,11 @@ function bindUI() {
 }
 
 function toggleModal(selector, show) {
-  let modal = $(selector);
-  
-  // If modal doesn't exist, try to recreate it or find an alternative
+  const modal = $(selector);
   if (!modal) {
-    // For game detail modal, it might need to be fetched from the HTML
-    if (selector === "#modal-game-detail") {
-      const existingModal = document.getElementById("modal-game-detail");
-      if (!existingModal) {
-        console.warn(`Modal not found: ${selector}`);
-        return;
-      }
-      modal = existingModal;
-    } else {
-      console.warn(`Modal not found: ${selector}`);
-      return;
-    }
+    console.error(`Modal not found: ${selector}`);
+    return;
   }
-  
   if (show) {
     modal.classList.remove("hidden");
   } else {
@@ -1509,6 +1812,17 @@ function renderConsoles() {
 
 let editingConsoleId = null;
 
+function toggleConsoleType() {
+  const consoleType = document.querySelector('input[name="console-type"]:checked').value;
+  const pathLabel = document.getElementById("console-path-label");
+  
+  if (consoleType === "empty") {
+    pathLabel.classList.add("hidden");
+  } else {
+    pathLabel.classList.remove("hidden");
+  }
+}
+
 async function onSaveConsole() {
   const name = $("#console-name-input").value.trim();
   const consoleType = document.querySelector('input[name="console-type"]:checked').value;
@@ -1526,10 +1840,9 @@ async function onSaveConsole() {
 
   try {
     if (editingConsoleId) {
-      const consoleData = { name, path: path || "" };
       const updated = await apiCall(`/consoles/${editingConsoleId}`, {
         method: "PUT",
-        body: JSON.stringify(consoleData),
+        body: JSON.stringify({ name, path }),
       });
 
       const idx = consoles.findIndex(c => c.id === editingConsoleId);
@@ -1557,12 +1870,13 @@ async function onSaveConsole() {
       currentConsoleId = created.id;
       renderConsoles();
       updateConsoleSummary();
-      await loadGamesForConsole(created.id);
       
-      const msg = path 
-        ? `Console '${name}' added and ${created.game_count} games scanned!`
-        : `Console '${name}' created (empty). Use "Add Game" to add games.`;
-      showToast(msg, "success");
+      if (path) {
+        await loadGamesForConsole(created.id);
+        showToast(`Console '${name}' added and ${created.game_count} games scanned!`, "success");
+      } else {
+        showToast(`Console '${name}' created (empty). Use "Add Game" to add games.`, "success");
+      }
     }
     
     toggleModal("#modal-console", false);
@@ -1885,27 +2199,22 @@ async function onFetchScreenshots() {
   if (!currentConsoleId) return;
   
   // Show confirmation dialog
-  const result = await showScreenshotFetchDialog();
-  if (!result) return;
-  
-  const { strategy, source } = result;
+  const choice = await showScreenshotFetchDialog();
+  if (!choice) return;
   
   try {
-    showToast(strategy === "force" ? "Force fetching all screenshots..." : "Smart fetching missing screenshots...", "info");
+    showToast(choice === "force" ? "Force fetching all screenshots..." : "Smart fetching missing screenshots...", "info");
     
-    const params = new URLSearchParams();
-    if (strategy === "force") params.append("force", "true");
-    if (source) params.append("source", source);
-    
-    const fetchResult = await apiCall(
-      `/consoles/${currentConsoleId}/fetch-screenshots?${params.toString()}`,
+    const forceParam = choice === "force" ? "?force=true" : "";
+    const result = await apiCall(
+      `/consoles/${currentConsoleId}/fetch-screenshots${forceParam}`,
       { method: "POST" }
     );
     
-    if (strategy === "force") {
-      showToast(`Force fetched screenshots for ${fetchResult.updated} games (${fetchResult.skipped} skipped)`, "success");
+    if (choice === "force") {
+      showToast(`Force fetched screenshots for ${result.updated} games (${result.skipped} skipped)`, "success");
     } else {
-      showToast(`Smart fetched screenshots for ${fetchResult.updated} games (${fetchResult.skipped} skipped)`, "success");
+      showToast(`Smart fetched screenshots for ${result.updated} games (${result.skipped} skipped)`, "success");
     }
     
     await loadGamesForConsole(currentConsoleId);
@@ -1927,28 +2236,6 @@ function showScreenshotFetchDialog() {
       <div class="modal-content">
         <h2>Fetch Screenshots Strategy</h2>
         <div style="margin: 20px 0;">
-          <div style="margin-bottom: 20px;">
-            <h3 style="margin: 0 0 10px; font-size: 1rem;">Select Source</h3>
-            <div style="margin-bottom: 12px;">
-              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
-                <input type="radio" name="fetch-source" value="duckduckgo" checked style="margin-right: 8px;">
-                DuckDuckGo (Recommended)
-              </label>
-              <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
-                Searches for screenshots. Works for any console. No API key needed.
-              </p>
-            </div>
-            <div>
-              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
-                <input type="radio" name="fetch-source" value="rawg" style="margin-right: 8px;">
-                RAWG
-              </label>
-              <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
-                Uses RAWG database. Requires API key in homepage settings.
-              </p>
-            </div>
-          </div>
-          
           <div style="margin-bottom: 15px;">
             <label style="display: block; margin-bottom: 10px; font-weight: bold;">
               <input type="radio" name="fetch-strategy" value="smart" checked style="margin-right: 8px;">
@@ -1986,10 +2273,9 @@ function showScreenshotFetchDialog() {
     });
     
     document.getElementById('btn-screenshot-proceed').addEventListener('click', () => {
-      const strategy = document.querySelector('input[name=fetch-strategy]:checked').value;
-      const source = document.querySelector('input[name=fetch-source]:checked').value;
+      const choice = document.querySelector('input[name=fetch-strategy]:checked').value;
       modal.remove();
-      resolve({ strategy, source });
+      resolve(choice);
     });
   });
 }
@@ -2067,14 +2353,22 @@ function renderGamesForCurrentConsole() {
   const container = $("#game-list");
   container.innerHTML = "";
 
-  let games;
-  
-  // If status filter is active, use the pre-fetched status-filtered games (even on homepage)
-  if (activeStatusFilter && statusFilteredGames.length > 0) {
-    games = statusFilteredGames.slice();
-  } else if (!currentConsoleId) {
+  // Handle global status filter on homepage (no console selected)
+  if (!currentConsoleId && activeStatusFilter && statusFilteredGames.length > 0) {
+    renderGlobalStatusFilteredGames(container);
+    return;
+  }
+
+  if (!currentConsoleId) {
     container.innerHTML = `<p>Select a console to see its games.</p>`;
     return;
+  }
+
+  let games;
+  
+  // If status filter is active, use the pre-fetched status-filtered games
+  if (activeStatusFilter && statusFilteredGames.length > 0) {
+    games = statusFilteredGames.slice();
   } else {
     games = (gamesByConsole[currentConsoleId] || [])
       .slice()
@@ -2179,6 +2473,100 @@ function renderGamesForCurrentConsole() {
   }
 
   container.appendChild(pagination);
+}
+
+// Render global status-filtered games (from homepage)
+// -----------------------------------------------------------
+function renderGlobalStatusFilteredGames(container) {
+  let games = statusFilteredGames.slice();
+  
+  const totalPages = Math.ceil(games.length / PAGE_SIZE);
+  if (currentPage > totalPages) currentPage = 1;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+  const pageGames = games.slice(start, end);
+
+  // Add header showing we're viewing all games with this status
+  const header = document.createElement("div");
+  header.style.marginBottom = "16px";
+  header.innerHTML = `
+    <h2>All ${activeStatusFilter.replace("_", " ")} Games</h2>
+    <p style="color: var(--text-muted);">Showing ${games.length} game(s) across all consoles</p>
+  `;
+  container.appendChild(header);
+
+  if (!pageGames.length) {
+    container.innerHTML += `<p>No games found.</p>`;
+    return;
+  }
+
+  pageGames.forEach((g) => {
+    const card = document.createElement("article");
+    card.className = "game-card";
+    card.dataset.id = g.id;
+    card.dataset.title = g.title;
+
+    const cover = g.cover_url
+      ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${g.title} cover" />`
+      : `<div class="no-cover">No cover</div>`;
+
+    card.innerHTML = `
+      <div class="game-cover" style="position: relative;">
+        ${cover}
+        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata">🔄</button>
+        <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
+        <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game">🗑️</button>
+        <button class="game-card-fetch-cover" onclick="fetchSingleGameCover(${g.id}, event)" title="Fetch cover from DuckDuckGo">🖼️</button>
+      </div>
+      <div class="game-title">${g.title}</div>
+      <div class="game-meta">
+        ${g.genre || "Unknown genre"}
+        ${g.console_name ? `<span class="game-console-badge">${g.console_name}</span>` : ""}
+      </div>
+      <div class="game-actions">
+      </div>
+    `;
+
+    card.addEventListener("click", (e) => {
+      if (e.target.tagName === "BUTTON") return;
+      openGameDetail(g.id);
+    });
+
+    container.appendChild(card);
+  });
+
+  // Pagination for global filtered games
+  if (totalPages > 1) {
+    const pagination = document.createElement("div");
+    pagination.className = "pagination";
+
+    if (currentPage > 1) {
+      const prev = document.createElement("button");
+      prev.textContent = "Previous";
+      prev.addEventListener("click", () => {
+        currentPage--;
+        renderGamesForCurrentConsole();
+      });
+      pagination.appendChild(prev);
+    }
+
+    const info = document.createElement("span");
+    info.textContent = `Page ${currentPage} of ${totalPages}`;
+    pagination.appendChild(info);
+
+    if (currentPage < totalPages) {
+      const next = document.createElement("button");
+      next.textContent = "Next";
+      next.addEventListener("click", () => {
+        currentPage++;
+        renderGamesForCurrentConsole();
+      });
+      pagination.appendChild(next);
+    }
+
+    container.appendChild(pagination);
+  }
 }
 
 // -----------------------------------------------------------
@@ -2340,6 +2728,53 @@ function renderGameDetail(game) {
 // -----------------------------------------------------------
 // Game Detail Navigation
 // -----------------------------------------------------------
+function changeDescriptionPage(delta) {
+  const newPage = currentDescriptionPage + delta;
+  if (newPage >= 1 && newPage <= totalDescriptionPages) {
+    currentDescriptionPage = newPage;
+    renderGameDetail(currentGameDetail);
+  }
+}
+
+function formatCompletedDate(note) {
+  if (!note) return '';
+  // Try to extract date from note - look for patterns like "mm/dd/yyyy" or "yyyy" or "mm/dd"
+  // The note can contain the date plus comment, so we try to extract just the date part
+  const dateMatch = note.match(/^(\d{1,2}\/\d{1,2}\/\d{4}|\d{4}|\d{1,2}\/\d{1,2})/);
+  if (dateMatch) {
+    return dateMatch[1];
+  }
+  return '';
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function getNotePreview(note) {
+  if (!note) return '';
+  const words = note.trim().split(/\s+/);
+  const previewWords = words.slice(0, 20);
+  let preview = previewWords.join(' ');
+  if (words.length > 20) {
+    preview += '...';
+  }
+  return preview;
+}
+
+function openCompletedCommentModal(element) {
+  const note = element.getAttribute('data-note');
+  const content = $("#completed-comment-content");
+  content.innerHTML = `<div>${note}</div>`;
+  toggleModal("#modal-completed-comment", true);
+}
+
 async function navigateToPrevGame() {
   if (currentGameIndex <= 0 || currentGamesList.length === 0) return;
   
@@ -2374,42 +2809,6 @@ async function navigateToNextGame() {
   } catch (e) {
     showToast("Failed to load next game", "error");
   }
-}
-
-function changeDescriptionPage(delta) {
-  const newPage = currentDescriptionPage + delta;
-  if (newPage >= 1 && newPage <= totalDescriptionPages) {
-    currentDescriptionPage = newPage;
-    renderGameDetail(currentGameDetail);
-  }
-}
-
-function getNotePreview(note) {
-  if (!note) return '';
-  const words = note.trim().split(/\s+/);
-  const previewWords = words.slice(0, 20);
-  let preview = previewWords.join(' ');
-  if (words.length > 20) {
-    preview += '...';
-  }
-  return preview;
-}
-
-function escapeHtml(text) {
-  if (!text) return '';
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function openCompletedCommentModal(element) {
-  const note = element.getAttribute('data-note');
-  const content = $("#completed-comment-content");
-  content.innerHTML = `<div>${note}</div>`;
-  toggleModal("#modal-completed-comment", true);
 }
 
 // -----------------------------------------------------------
@@ -2550,7 +2949,6 @@ async function deleteGame(gameId, event) {
     // Reload games for current console
     await loadGamesForConsole(currentConsoleId);
     extractGenres();
-    await loadStats();
   } catch (error) {
     // Error already shown by apiCall
   }
@@ -2562,7 +2960,9 @@ async function deleteConsole(consoleId, event) {
   const console = consoles.find(c => c.id === consoleId);
   if (!console) return;
   
-  if (!confirm(`Are you sure you want to delete the console "${console.name}" and ALL its games? This action cannot be undone.`)) {
+  const confirmation = prompt(`Type '123' to confirm deletion of console "${console.name}" and ALL its games:`);
+  if (confirmation !== "123") {
+    showToast("Console deletion cancelled - incorrect confirmation", "error");
     return;
   }
 
@@ -2630,17 +3030,12 @@ async function onSaveTheme() {
   const accent = $("#theme-accent-color").value;
   let headerImage = $("#theme-header-image").value.trim();
 
-  const handleThemeSave = async (finalHeaderImage) => {
-    const theme = { bgColor, accent, headerImage: finalHeaderImage };
-    localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
-    applyTheme(theme);
-    toggleModal("#modal-theme", false);
-    showToast("Theme saved!", "success");
-  };
-
+  // Check if a file was uploaded
   const fileInput = $("#theme-header-upload");
   if (fileInput.files && fileInput.files[0]) {
     const file = fileInput.files[0];
+    
+    // Upload the file
     const formData = new FormData();
     formData.append("file", file);
 
@@ -2650,18 +3045,97 @@ async function onSaveTheme() {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("Upload failed");
+      
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: "Upload failed" }));
+        throw new Error(error.detail || "Upload failed");
+      }
+      
       const result = await res.json();
       headerImage = result.url;
+      showToast("Header image uploaded!", "success");
     } catch (e) {
-      showToast("Failed to upload header: " + e.message, "error");
-      setLoading(false);
+      showToast(`Upload failed: ${e.message}`, "error");
       return;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
-  handleThemeSave(headerImage);
+  const theme = { bgColor, accent, headerImage };
+  localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
+
+  applyTheme(theme);
+  toggleModal("#modal-theme", false);
+  showToast("Theme saved!", "success");
+}
+
+async function populateThemeModal() {
+  const currentHeaderSection = $("#theme-current-header");
+  const currentHeaderImg = $("#theme-current-header-img");
+  
+  // Check server state instead of localStorage
+  try {
+    const res = await fetch(`${API}/theme/header`);
+    const data = await res.json();
+    
+    if (data.exists && data.url) {
+      const fullUrl = toAbsoluteUrl(data.url) + `?t=${Date.now()}`; // Add cache-buster
+      currentHeaderImg.src = fullUrl;
+      currentHeaderSection.classList.remove("hidden");
+    } else {
+      // No image on server - hide preview and clear localStorage if it has headerImage
+      currentHeaderSection.classList.add("hidden");
+      currentHeaderImg.src = "";
+      
+      // Also clear localStorage to sync state
+      const raw = localStorage.getItem("gameArchiveTheme");
+      if (raw) {
+        try {
+          const theme = JSON.parse(raw);
+          if (theme.headerImage) {
+            theme.headerImage = "";
+            localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
+            applyTheme(theme);
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {
+    console.error("Failed to check theme header:", e);
+    currentHeaderSection.classList.add("hidden");
+  }
+  
+  // Also clear the file input
+  const fileInput = $("#theme-header-upload");
+  if (fileInput) fileInput.value = "";
+}
+
+async function onRemoveThemeHeader() {
+  try {
+    setLoading(true);
+    const res = await fetch(`${API}/theme/header`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete");
+    
+    // Update localStorage
+    const raw = localStorage.getItem("gameArchiveTheme");
+    if (raw) {
+      const theme = JSON.parse(raw);
+      theme.headerImage = "";
+      localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
+      applyTheme(theme);
+    }
+    
+    $("#theme-current-header").classList.add("hidden");
+    $("#theme-header-image").value = "";
+    $("#theme-header-upload").value = "";
+    
+    showToast("Header image removed", "success");
+  } catch (e) {
+    showToast(`Failed to remove: ${e.message}`, "error");
+  } finally {
+    setLoading(false);
+  }
 }
 
 function applySavedTheme() {
@@ -2692,14 +3166,11 @@ function applyTheme(theme) {
       $(".app-header").style.height = this.naturalHeight + "px";
     };
     img.onerror = function() {
-      $(".app-header").style.backgroundImage = `url("${theme.headerImage}")`;
-      $(".app-header").style.backgroundSize = "cover";
-      $(".app-header").style.backgroundPosition = "center";
+      $(".app-header").style.backgroundImage = "none";
     };
     img.src = theme.headerImage;
   } else {
     $(".app-header").style.backgroundImage = "none";
-    $(".app-header").style.backgroundSize = "cover";
     $(".app-header").style.height = "";
   }
 }
@@ -2751,7 +3222,10 @@ function finishRenameTitle() {
     const title = newTitle;
     localStorage.setItem("customTitle", title);
     $("#app-title").textContent = title;
-    $("#homepage-title").textContent = title;
+    const homepageTitle = $("#homepage-title");
+    if (homepageTitle) {
+      homepageTitle.textContent = title;
+    }
   }
 }
 
@@ -2769,7 +3243,10 @@ function loadCustomTitle() {
   const customTitle = localStorage.getItem("customTitle");
   if (customTitle) {
     $("#app-title").textContent = customTitle;
-    $("#homepage-title").textContent = customTitle;
+    const homepageTitle = $("#homepage-title");
+    if (homepageTitle) {
+      homepageTitle.textContent = customTitle;
+    }
   }
 }
 
@@ -2779,6 +3256,8 @@ function loadCustomTitle() {
 async function populateThemeModal() {
   const currentHeaderImg = $("#theme-current-header-img");
   const currentHeaderDiv = $("#theme-current-header");
+  
+  if (!currentHeaderDiv) return;
   
   try {
     const res = await fetch(`${API}/theme/header`);
@@ -2822,6 +3301,8 @@ async function onRemoveThemeHeader() {
 
 let headerRotationInterval = null;
 
+const HEADER_ROTATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+
 async function onRandomHeader() {
   try {
     setLoading(true);
@@ -2849,8 +3330,6 @@ async function onRandomHeader() {
   }
   setLoading(false);
 }
-
-const HEADER_ROTATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
 
 async function applyRandomHeaderOnLoad() {
   try {
