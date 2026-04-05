@@ -76,8 +76,15 @@ function openLightbox(imageSrc) {
   // Extract URLs from screenshot objects for lightbox
   const screenshotUrls = currentLightboxScreenshots.map(s => s.url || s);
   
-  // Find the index of clicked screenshot
-  currentLightboxIndex = screenshotUrls.indexOf(imageSrc);
+  // Strip timestamp from clicked image URL for matching
+  const cleanImageSrc = imageSrc.split('?t=')[0];
+  
+  // Find the index of clicked screenshot by matching filename
+  currentLightboxIndex = screenshotUrls.findIndex(url => {
+    const cleanUrl = url.split('?t=')[0];
+    return cleanUrl === cleanImageSrc || cleanUrl.endsWith(cleanImageSrc.split('/').pop());
+  });
+  
   if (currentLightboxIndex === -1) {
     currentLightboxIndex = 0;
   }
@@ -107,7 +114,8 @@ function previousScreenshot() {
 function updateLightbox() {
   const img = document.getElementById("lightbox-img");
   const screenshot = currentLightboxScreenshots[currentLightboxIndex];
-  img.src = toAbsoluteUrl(screenshot.url || screenshot) + "?t=" + Date.now();
+  const screenshotUrl = screenshot.url || screenshot;
+  img.src = toAbsoluteUrl(screenshotUrl) + "?t=" + Date.now();
   updateLightboxCounter();
 }
 
@@ -1965,18 +1973,26 @@ async function onFetchText() {
   if (!choice) return; // User cancelled
   
   try {
-    showToast(choice === "force" ? "Force updating all metadata..." : "Smart updating metadata...", "info");
+    const { strategy, letter } = choice;
+    let toastMsg = strategy === "force" ? "Force updating all metadata" : "Smart updating metadata";
+    if (letter) toastMsg += ` (${letter === '0' ? '0-9' : letter})`;
+    toastMsg += "...";
+    showToast(toastMsg, "info");
     
-    const forceParam = choice === "force" ? "?force=true" : "";
+    const params = new URLSearchParams();
+    if (strategy === "force") params.append("force", "true");
+    if (letter) params.append("letter", letter);
+    
     const result = await apiCall(
-      `/consoles/${currentConsoleId}/fetch-metadata${forceParam}`,
+      `/consoles/${currentConsoleId}/fetch-metadata?${params.toString()}`,
       { method: "POST" }
     );
     
-    if (choice === "force") {
-      showToast(`Force updated metadata for ${result.updated} games (${result.skipped} skipped)`, "success");
+    const progressMsg = `${result.processed}/${result.total} (${result.progress_pct}%)`;
+    if (strategy === "force") {
+      showToast(`Force updated metadata: ${result.updated} (${result.skipped} skipped) - ${progressMsg}`, "success");
     } else {
-      showToast(`Smart updated metadata for ${result.updated} games (${result.skipped} skipped)`, "success");
+      showToast(`Smart updated metadata: ${result.updated} (${result.skipped} skipped) - ${progressMsg}`, "success");
     }
     
     await loadGamesForConsole(currentConsoleId);
@@ -1990,6 +2006,9 @@ function showMetadataFetchDialog() {
   // Remove any existing modals first
   const existingModals = document.querySelectorAll('.modal');
   existingModals.forEach(m => m.remove());
+  
+  const letters = ['', '0', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+  const letterOptions = letters.map(l => `<option value="${l}">${l === '' ? 'All' : l}</option>`).join('');
   
   // Create modal with backdrop
   const modal = document.createElement('div');
@@ -2017,6 +2036,16 @@ function showMetadataFetchDialog() {
             Updates ALL games in this console. Will overwrite existing metadata.
           </p>
         </div>
+
+        <div>
+          <h3 style="margin: 0 0 10px; font-size: 1rem;">Filter by Letter (Optional)</h3>
+          <select id="fetch-letter" style="padding: 8px; width: 100%; font-size: 1rem;">
+            ${letterOptions}
+          </select>
+          <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
+            Leave as "All" to fetch all games. Select a letter to fetch only games starting with that letter.
+          </p>
+        </div>
       </div>
       
       <div class="modal-actions">
@@ -2032,6 +2061,8 @@ function showMetadataFetchDialog() {
   return new Promise((resolve) => {
     modal.confirmFetchStrategy = (button) => {
       const selected = modal.querySelector('input[name="fetch-strategy"]:checked').value;
+      const letterSelect = modal.querySelector('#fetch-letter');
+      const letter = letterSelect ? letterSelect.value : '';
       
       if (selected === "force") {
         const confirmation = prompt("Type '123' to confirm force update of ALL games:");
@@ -2044,7 +2075,7 @@ function showMetadataFetchDialog() {
       }
       
       closeMetadataDialog();
-      resolve(selected);
+      resolve({ strategy: selected, letter });
     };
   });
 }
@@ -2066,6 +2097,9 @@ function confirmFetchStrategy(button) {
 function showCoverFetchDialog() {
   const existingModals = document.querySelectorAll('.modal');
   existingModals.forEach(m => m.remove());
+  
+  const letters = ['', '0', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+  const letterOptions = letters.map(l => `<option value="${l}">${l === '' ? 'All' : l}</option>`).join('');
   
   const modal = document.createElement('div');
   modal.className = 'modal active';
@@ -2116,6 +2150,16 @@ function showCoverFetchDialog() {
             </p>
           </div>
         </div>
+
+        <div>
+          <h3 style="margin: 0 0 10px; font-size: 1rem;">Filter by Letter (Optional)</h3>
+          <select id="fetch-letter" style="padding: 8px; width: 100%; font-size: 1rem;">
+            ${letterOptions}
+          </select>
+          <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
+            Leave as "All" to fetch all games. Select a letter to fetch only games starting with that letter.
+          </p>
+        </div>
       </div>
       
       <div class="modal-actions">
@@ -2131,6 +2175,11 @@ function showCoverFetchDialog() {
     modal.confirmCoverStrategy = (button) => {
       const source = modal.querySelector('input[name="fetch-source"]:checked').value;
       const strategy = modal.querySelector('input[name="fetch-strategy"]:checked').value;
+      const letterSelect = modal.querySelector('#fetch-letter');
+      const letter = letterSelect ? letterSelect.value : '';
+      
+      console.log('[DEBUG] Letter select:', letterSelect);
+      console.log('[DEBUG] Letter value:', letter);
       
       if (strategy === "force") {
         const confirmation = prompt("Type '123' to confirm force update of ALL covers:");
@@ -2143,7 +2192,7 @@ function showCoverFetchDialog() {
       }
       
       closeCoverDialog();
-      resolve({ source, strategy });
+      resolve({ source, strategy, letter });
     };
   });
 }
@@ -2170,28 +2219,101 @@ async function onFetchCovers() {
   
   try {
     setLoading(true);
-    const { source, strategy } = choice;
-    showToast(strategy === "force" ? "Force updating all covers..." : "Smart updating covers...", "info");
+    const { source, strategy, letter } = choice;
+    
+    let toastMsg = strategy === "force" ? "Force updating all covers" : "Smart updating covers";
+    if (letter) toastMsg += ` (${letter === '0' ? '0-9' : letter})`;
+    toastMsg += "...";
+    showToast(toastMsg, "info");
     
     const params = new URLSearchParams();
     if (strategy === "force") params.append("force", "true");
     if (source) params.append("source", source);
+    if (letter) params.append("letter", letter);
     
-    const result = await apiCall(
-      `/consoles/${currentConsoleId}/fetch-covers?${params.toString()}`,
-      { method: "POST" }
-    );
+    // Add progress UI
+    const progressContainer = document.createElement('div');
+    progressContainer.id = 'fetch-progress-container';
+    progressContainer.style.cssText = 'position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-secondary); padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000; min-width: 300px;';
+    progressContainer.innerHTML = `
+      <div style="margin-bottom: 8px; font-weight: bold;">Fetching Covers</div>
+      <div id="fetch-progress-bar" style="width: 100%; height: 8px; background: var(--bg-primary); border-radius: 4px; overflow: hidden;">
+        <div id="fetch-progress-fill" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.3s;"></div>
+      </div>
+      <div id="fetch-progress-text" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);">0/0 (0%)</div>
+      <button id="btn-cancel-fetch" style="margin-top: 10px; padding: 8px 20px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+    `;
+    document.body.appendChild(progressContainer);
     
-    if (strategy === "force") {
-      showToast(`Force updated covers for ${result.updated} games (${result.skipped} skipped)`, "success");
-    } else {
-      showToast(`Smart updated covers for ${result.updated} games (${result.skipped} skipped)`, "success");
-    }
-    await loadGamesForConsole(currentConsoleId);
+    // Cancel button handler
+    document.getElementById('btn-cancel-fetch').onclick = async () => {
+      try {
+        await apiCall(`/consoles/${currentConsoleId}/fetch-covers/cancel`, { method: "POST" });
+        showToast("Cancel signal sent...", "info");
+      } catch (e) {}
+    };
+    
+    // Use SSE streaming endpoint
+    const url = `${API}/consoles/${currentConsoleId}/fetch-covers/stream?${params.toString()}`;
+    const eventSource = new EventSource(url);
+    
+    let fetchComplete = false;
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.status === 'error') {
+          eventSource.close();
+          showToast(`Error: ${data.error}`, "error");
+          return;
+        }
+        
+        if (data.status === 'starting') {
+          return;
+        }
+        
+        // Update progress UI
+        const fill = document.getElementById('fetch-progress-fill');
+        const text = document.getElementById('fetch-progress-text');
+        if (fill) fill.style.width = `${data.progress_pct}%`;
+        if (text) text.textContent = `${data.processed}/${data.total} (${data.progress_pct}%)`;
+        
+        if (data.status === 'complete' || data.status === 'done') {
+          fetchComplete = true;
+          eventSource.close();
+          
+          // Remove progress UI
+          progressContainer.remove();
+          
+          if (data.cancelled) {
+            showToast(`Cover fetch cancelled - ${data.processed}/${data.total} processed (${data.updated} updated, ${data.skipped} skipped)`, "warning");
+          } else {
+            const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
+            showToast(`Fetched covers: ${data.updated} updated, ${data.skipped} skipped - ${data.processed}/${data.total}${elapsed}`, "success");
+          }
+          loadGamesForConsole(currentConsoleId);
+        }
+      } catch (e) {
+        console.error("SSE parse error:", e);
+      }
+    };
+    
+    eventSource.onerror = () => {
+      if (!fetchComplete) {
+        eventSource.close();
+        progressContainer.remove();
+        showToast("Connection error - please retry", "error");
+        setLoading(false);
+      }
+    };
+    
   } catch (e) {
-    // Error already shown
+    const progressContainer = document.getElementById('fetch-progress-container');
+    if (progressContainer) progressContainer.remove();
+    showToast(e.message || "Error fetching covers", "error");
   } finally {
-    setLoading(false);
+    // Don't call setLoading(false) here - it's handled in onmessage
   }
 }
 
@@ -2203,23 +2325,97 @@ async function onFetchScreenshots() {
   if (!choice) return;
   
   try {
-    showToast(choice === "force" ? "Force fetching all screenshots..." : "Smart fetching missing screenshots...", "info");
+    const { strategy, letter } = choice;
+    let toastMsg = strategy === "force" ? "Force fetching all screenshots" : "Smart fetching missing screenshots";
+    if (letter) toastMsg += ` (${letter === '0' ? '0-9' : letter})`;
+    toastMsg += "...";
+    showToast(toastMsg, "info");
     
-    const forceParam = choice === "force" ? "?force=true" : "";
-    const result = await apiCall(
-      `/consoles/${currentConsoleId}/fetch-screenshots${forceParam}`,
-      { method: "POST" }
-    );
+    const params = new URLSearchParams();
+    if (strategy === "force") params.append("force", "true");
+    if (letter) params.append("letter", letter);
     
-    if (choice === "force") {
-      showToast(`Force fetched screenshots for ${result.updated} games (${result.skipped} skipped)`, "success");
-    } else {
-      showToast(`Smart fetched screenshots for ${result.updated} games (${result.skipped} skipped)`, "success");
-    }
+    // Add progress UI
+    const progressContainer = document.createElement('div');
+    progressContainer.id = 'fetch-progress-container';
+    progressContainer.style.cssText = 'position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--bg-secondary); padding: 15px 25px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000; min-width: 300px;';
+    progressContainer.innerHTML = `
+      <div style="margin-bottom: 8px; font-weight: bold;">Fetching Screenshots</div>
+      <div id="fetch-progress-bar" style="width: 100%; height: 8px; background: var(--bg-primary); border-radius: 4px; overflow: hidden;">
+        <div id="fetch-progress-fill" style="width: 0%; height: 100%; background: var(--accent-color); transition: width 0.3s;"></div>
+      </div>
+      <div id="fetch-progress-text" style="margin-top: 8px; font-size: 0.85rem; color: var(--text-muted);">0/0 (0%)</div>
+      <button id="btn-cancel-fetch" style="margin-top: 10px; padding: 8px 20px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Cancel</button>
+    `;
+    document.body.appendChild(progressContainer);
     
-    await loadGamesForConsole(currentConsoleId);
+    // Cancel button handler
+    document.getElementById('btn-cancel-fetch').onclick = async () => {
+      try {
+        await apiCall(`/consoles/${currentConsoleId}/fetch-screenshots/cancel`, { method: "POST" });
+        showToast("Cancel signal sent...", "info");
+      } catch (e) {}
+    };
+    
+    // Use SSE streaming endpoint
+    const url = `${API}/consoles/${currentConsoleId}/fetch-screenshots/stream?${params.toString()}`;
+    const eventSource = new EventSource(url);
+    
+    let fetchComplete = false;
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.status === 'error') {
+          eventSource.close();
+          showToast(`Error: ${data.error}`, "error");
+          return;
+        }
+        
+        if (data.status === 'starting') {
+          return;
+        }
+        
+        // Update progress UI
+        const fill = document.getElementById('fetch-progress-fill');
+        const text = document.getElementById('fetch-progress-text');
+        if (fill) fill.style.width = `${data.progress_pct}%`;
+        if (text) text.textContent = `${data.processed}/${data.total} (${data.progress_pct}%)`;
+        
+        if (data.status === 'complete' || data.status === 'done') {
+          fetchComplete = true;
+          eventSource.close();
+          
+          // Remove progress UI
+          progressContainer.remove();
+          
+          if (data.cancelled) {
+            showToast(`Screenshot fetch cancelled - ${data.processed}/${data.total} processed (${data.updated} updated, ${data.skipped} skipped)`, "warning");
+          } else {
+            const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
+            showToast(`Fetched screenshots: ${data.updated} updated, ${data.skipped} skipped - ${data.processed}/${data.total}${elapsed}`, "success");
+          }
+          loadGamesForConsole(currentConsoleId);
+        }
+      } catch (e) {
+        console.error("SSE parse error:", e);
+      }
+    };
+    
+    eventSource.onerror = () => {
+      if (!fetchComplete) {
+        eventSource.close();
+        progressContainer.remove();
+        showToast("Connection error - please retry", "error");
+        setLoading(false);
+      }
+    };
+    
   } catch (e) {
-    // Error already shown
+    const progressContainer = document.getElementById('fetch-progress-container');
+    if (progressContainer) progressContainer.remove();
+    showToast(e.message || "Error fetching screenshots", "error");
   }
 }
 
@@ -2228,6 +2424,9 @@ function showScreenshotFetchDialog() {
     // Remove any existing modals first
     const existingModals = document.querySelectorAll('.modal');
     existingModals.forEach(m => m.remove());
+    
+    const letters = ['', '0', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+    const letterOptions = letters.map(l => `<option value="${l}">${l === '' ? 'All' : l}</option>`).join('');
     
     // Create modal with backdrop
     const modal = document.createElement('div');
@@ -2255,6 +2454,16 @@ function showScreenshotFetchDialog() {
               Re-fetches ALL games in this console. Will overwrite existing screenshots.
             </p>
           </div>
+
+          <div>
+            <h3 style="margin: 0 0 10px; font-size: 1rem;">Filter by Letter (Optional)</h3>
+            <select id="fetch-letter" style="padding: 8px; width: 100%; font-size: 1rem;">
+              ${letterOptions}
+            </select>
+            <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
+              Leave as "All" to fetch all games. Select a letter to fetch only games starting with that letter.
+            </p>
+          </div>
         </div>
         
         <div class="modal-actions">
@@ -2273,9 +2482,11 @@ function showScreenshotFetchDialog() {
     });
     
     document.getElementById('btn-screenshot-proceed').addEventListener('click', () => {
-      const choice = document.querySelector('input[name=fetch-strategy]:checked').value;
+      const strategy = document.querySelector('input[name=fetch-strategy]:checked').value;
+      const letterSelect = modal.querySelector('#fetch-letter');
+      const letter = letterSelect ? letterSelect.value : '';
       modal.remove();
-      resolve(choice);
+      resolve({ strategy, letter });
     });
   });
 }
@@ -2459,7 +2670,32 @@ function renderGamesForCurrentConsole() {
   }
 
   const info = document.createElement("span");
-  info.textContent = `Page ${currentPage} of ${totalPages}`;
+  info.innerHTML = `
+    <input type="number" id="page-jump-input" min="1" max="${totalPages}" value="${currentPage}" 
+           style="width: 50px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--text); text-align: center;" />
+    <span>of ${totalPages}</span>
+  `;
+  const pageInput = info.querySelector("#page-jump-input");
+  pageInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") {
+      let newPage = parseInt(pageInput.value);
+      if (newPage >= 1 && newPage <= totalPages) {
+        currentPage = newPage;
+        renderGamesForCurrentConsole();
+      } else {
+        pageInput.value = currentPage;
+      }
+    }
+  });
+  pageInput.addEventListener("blur", () => {
+    let newPage = parseInt(pageInput.value);
+    if (newPage >= 1 && newPage <= totalPages) {
+      currentPage = newPage;
+      renderGamesForCurrentConsole();
+    } else {
+      pageInput.value = currentPage;
+    }
+  });
   pagination.appendChild(info);
 
   if (currentPage < totalPages) {
@@ -2552,7 +2788,32 @@ function renderGlobalStatusFilteredGames(container) {
     }
 
     const info = document.createElement("span");
-    info.textContent = `Page ${currentPage} of ${totalPages}`;
+    info.innerHTML = `
+      <input type="number" id="page-jump-input-global" min="1" max="${totalPages}" value="${currentPage}" 
+             style="width: 50px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--text); text-align: center;" />
+      <span>of ${totalPages}</span>
+    `;
+    const pageInput = info.querySelector("#page-jump-input-global");
+    pageInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
+        let newPage = parseInt(pageInput.value);
+        if (newPage >= 1 && newPage <= totalPages) {
+          currentPage = newPage;
+          renderGamesForCurrentConsole();
+        } else {
+          pageInput.value = currentPage;
+        }
+      }
+    });
+    pageInput.addEventListener("blur", () => {
+      let newPage = parseInt(pageInput.value);
+      if (newPage >= 1 && newPage <= totalPages) {
+        currentPage = newPage;
+        renderGamesForCurrentConsole();
+      } else {
+        pageInput.value = currentPage;
+      }
+    });
     pagination.appendChild(info);
 
     if (currentPage < totalPages) {

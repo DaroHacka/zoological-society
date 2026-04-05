@@ -10,6 +10,24 @@ Zoological Society is especially designed for keeping track of the games you own
 
 This project is built for people who want a personal archive that feels **beautiful**, **fast**, and **fully under their control**.
 
+---
+
+## 📰 What's New (Latest Updates)
+
+### Version 2.1 - Fetching & UI Improvements
+
+#### 🚀 Fetching Upgrades
+- **Real-time Progress** - See live progress when fetching covers and screenshots with SSE streaming (shows X/Y games, percentage, elapsed time)
+- **Batch by Letter** - Filter fetching by starting letter (A-Z, 0-9) to process games in chunks
+- **Cancel Fetch** - Ability to cancel ongoing fetch operations mid-way
+
+#### 🎨 UI Improvements  
+- **Page Jump** - Type a page number directly in the pagination input to jump ahead
+- **Screenshot Grid** - Improved 5-column grid with consistent sizing
+- **Screenshot Navigation** - Fixed lightbox navigation to correctly track clicked screenshot
+
+---
+
 <p align="center">
   <img src="/img-content/Screenshot 2026-02-17 133639.png" width="1080" alt="Zoological Society Logo">
 </p>

@@ -13,7 +13,7 @@ import requests
 from fastapi import FastAPI, HTTPException, BackgroundTasks, File, UploadFile, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 # --- RAWG PLATFORM ALIASES ---
@@ -104,6 +104,23 @@ WIKIPEDIA_HEADERS = {
 # Standard cover size
 COVER_WIDTH = 300
 COVER_HEIGHT = 450
+
+# Cancel mechanism
+FETCH_CANCEL_FILE = os.path.join(BASE_DIR, ".fetch_cancel")
+
+
+def set_fetch_cancel(cancel: bool):
+    if cancel:
+        with open(FETCH_CANCEL_FILE, "w") as f:
+            f.write("1")
+    else:
+        if os.path.exists(FETCH_CANCEL_FILE):
+            os.remove(FETCH_CANCEL_FILE)
+
+
+def is_fetch_cancelled() -> bool:
+    return os.path.exists(FETCH_CANCEL_FILE)
+
 
 # -------------------------------------------------------------------
 # Pydantic Models
@@ -247,6 +264,7 @@ def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 def init_db():
@@ -1891,33 +1909,55 @@ def fetch_screenshots_for_game(game_id: int, source: str = Query("duckduckgo")):
             conn.close()
 
 @app.post("/api/consoles/{cid}/fetch-metadata")
-def fetch_metadata_for_console(cid: int, force: bool = Query(False)):
-    """Fetch text metadata for console with smart filtering"""
-    """Fetch text metadata ONLY for missing fields, without overwriting manual edits."""
+def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str = Query(None), batch_commit: int = Query(50)):
+    """Fetch text metadata for console with smart filtering.
+    letter can be A-Z or 0-9 to filter by starting letter.
+    batch_commit is the number of games to process before committing (default 50)."""
     try:
         conn = get_conn()
         cur = conn.cursor()
 
         # Validate console
-        cur.execute("SELECT id FROM consoles WHERE id = ?;", (cid,))
-        if not cur.fetchone():
+        cur.execute("SELECT id, name FROM consoles WHERE id = ?;", (cid,))
+        console = cur.fetchone()
+        if not console:
             raise HTTPException(status_code=404, detail="Console not found")
+        
+        console_name = console["name"]
 
-        # Fetch games for this console
-        cur.execute(
-            """
+        # Build query with optional letter filter
+        query = """
             SELECT id, title, genre, description
             FROM games
             WHERE console_id = ?
-            ORDER BY title;
-            """,
-            (cid,),
-        )
+        """
+        params = [cid]
+        
+        if letter:
+            if letter == "0":
+                query += " AND title GLOB '[0-9]*'"
+            else:
+                query += " AND title LIKE ?"
+                params.append(f"{letter}%")
+        
+        query += " ORDER BY title;"
+        
+        cur.execute(query, params)
         rows = cur.fetchall()
+
+        if not rows:
+            conn.close()
+            raise HTTPException(status_code=404, detail="No games found for this filter")
 
         updated = 0
         skipped = 0
-        now = datetime.utcnow().isoformat()
+        processed = 0
+        total = len(rows)
+        
+        logger.info(f"Fetching metadata for {total} games in console {cid} (force={force}, letter={letter})")
+        
+        # Batch commit counter
+        commit_counter = 0
 
         for r in rows:
             gid = r["id"]
@@ -1936,7 +1976,7 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False)):
             
             if has_existing_metadata and not force:
                 skipped += 1
-                logger.debug(f"Skipping {title} - has existing metadata")
+                processed += 1
                 continue
             
             if force:
@@ -2053,17 +2093,26 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False)):
                     updated_at = ?
                 WHERE id = ?;
                 """,
-                (new_genre, new_desc, local_meta, now, gid),
+                (new_genre, new_desc, local_meta, datetime.utcnow().isoformat(), gid),
             )
 
             updated += 1
+            processed += 1
+            commit_counter += 1
             logger.info(f"Updated metadata for {title}")
+            
+            # Batch commit
+            if commit_counter >= batch_commit:
+                conn.commit()
+                commit_counter = 0
+                logger.debug(f"Batch commit at {processed}/{total}")
 
         conn.commit()
         conn.close()
 
-        logger.info(f"Metadata updated for {updated} games in console {cid}, {skipped} skipped")
-        return {"status": "ok", "updated": updated, "skipped": skipped}
+        progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+        logger.info(f"Metadata updated for {updated} games in console {cid}, {skipped} skipped, processed: {processed}/{total}")
+        return {"status": "ok", "updated": updated, "skipped": skipped, "processed": processed, "total": total, "progress_pct": progress_pct}
 
     except HTTPException:
         raise
@@ -2072,41 +2121,70 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False)):
         raise HTTPException(status_code=500, detail="Failed to fetch metadata")
 
 @app.post("/api/consoles/{cid}/fetch-covers")
-def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str = Query("rawg")):
-    """Fetch covers with console-specific folder structure. source can be 'rawg' or 'duckduckgo'"""
-    logger.info(f"[DEBUG] fetch_covers called with cid={cid}, force={force}, source={source}")
+def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str = Query("rawg"), letter: str = Query(None), batch_commit: int = Query(50)):
+    """Fetch covers with console-specific folder structure. source can be 'rawg' or 'duckduckgo'.
+    letter can be A-Z or 0-9 to filter by starting letter.
+    batch_commit is the number of games to process before committing (default 50)."""
+    logger.info(f"[DEBUG] fetch_covers called with cid={cid}, force={force}, source={source}, letter={letter}, batch_commit={batch_commit}")
     try:
         conn = get_conn()
         cur = conn.cursor()
         
-        # Get games for this console
-        cur.execute(
-            """
+        # Get console info first
+        cur.execute("SELECT id, name FROM consoles WHERE id = ?", (cid,))
+        console = cur.fetchone()
+        if not console:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Console not found")
+        
+        console_name = console["name"]
+        
+        # Build query with optional letter filter
+        query = """
             SELECT id, title, genre, description, console_id, cover_url
             FROM games
             WHERE console_id = ?
-            ORDER BY title;
-            """,
-            (cid,),
-        )
+        """
+        params = [cid]
+        
+        if letter:
+            if letter == "0":
+                query += " AND title GLOB '[0-9]*'"
+            else:
+                query += " AND title LIKE ?"
+                params.append(f"{letter}%")
+        
+        query += " ORDER BY title;"
+        
+        cur.execute(query, params)
         rows = cur.fetchall()
         
         if not rows:
             conn.close()
-            raise HTTPException(status_code=404, detail="Console not found")
+            raise HTTPException(status_code=404, detail="No games found for this filter")
         
         total = len(rows)
         updated = 0
         skipped = 0
+        processed = 0
+        cancelled = False
         
-        logger.info(f"Fetching covers for {total} games in console {cid} (force={force}, source={source})")
+        logger.info(f"Fetching covers for {total} games in console {cid} (force={force}, source={source}, letter={letter})")
         start = time.time()
         
-        # Get console name for folder structure
-        console_info = cur.execute("SELECT name FROM consoles WHERE id = ?", (cid,)).fetchone()
-        console_name = console_info["name"] if console_info else "unknown"
+        # Batch commit counter
+        commit_counter = 0
+        
+        # Clear any previous cancel flag
+        set_fetch_cancel(False)
         
         for game in rows:
+            # Check cancel flag periodically
+            if processed % 10 == 0:
+                if is_fetch_cancelled():
+                    cancelled = True
+                    break
+            
             gid = game["id"]
             title = game["title"]
             existing_cover = game["cover_url"]
@@ -2115,6 +2193,7 @@ def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str =
             if existing_cover and existing_cover.lower() != "null" and not force:
                 logger.debug(f"Skipping {title} - already has cover")
                 skipped += 1
+                processed += 1
                 continue
             
             # Create console-specific folder structure
@@ -2175,17 +2254,204 @@ def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str =
             if not cover_url:
                 skipped += 1
                 logger.debug(f"No cover found for {title}")
+            
+            processed += 1
+            commit_counter += 1
+            
+            # Batch commit
+            if commit_counter >= batch_commit:
+                conn.commit()
+                commit_counter = 0
+                logger.debug(f"Batch commit at {processed}/{total}")
         
+        # Final commit
         conn.commit()
         
-        end = time.time()
-        logger.info(f"Cover fetching completed in {end - start:.2f}s")
+        # Clear cancel flag
+        set_fetch_cancel(False)
         
-        return {"status": "ok", "updated": updated, "skipped": skipped}
+        end = time.time()
+        progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+        
+        logger.info(f"Cover fetching completed in {end - start:.2f}s - updated: {updated}, skipped: {skipped}, processed: {processed}, cancelled: {cancelled}")
+        
+        return {
+            "status": "ok",
+            "updated": updated,
+            "skipped": skipped,
+            "processed": processed,
+            "total": total,
+            "progress_pct": progress_pct,
+            "cancelled": cancelled
+        }
         
     except Exception as e:
         logger.error(f"Failed to fetch covers: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch covers")
+
+
+def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: str, batch_commit: int):
+    """Generator that yields SSE progress updates for cover fetching."""
+    import asyncio
+    
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT id, name FROM consoles WHERE id = ?", (cid,))
+        console = cur.fetchone()
+        if not console:
+            yield f"data: {json.dumps({'error': 'Console not found'})}\n\n"
+            return
+        
+        console_name = console["name"]
+        
+        query = """
+            SELECT id, title, genre, description, console_id, cover_url
+            FROM games
+            WHERE console_id = ?
+        """
+        params = [cid]
+        
+        if letter:
+            if letter == "0":
+                query += " AND title GLOB '[0-9]*'"
+            else:
+                query += " AND title LIKE ?"
+                params.append(f"{letter}%")
+        
+        query += " ORDER BY title;"
+        
+        cur.execute(query, params)
+        rows = cur.fetchall()
+        
+        if not rows:
+            yield f"data: {json.dumps({'error': 'No games found for this filter'})}\n\n"
+            return
+        
+        total = len(rows)
+        updated = 0
+        skipped = 0
+        processed = 0
+        cancelled = False
+        
+        logger.info(f"Streaming covers for {total} games in console {cid}")
+        start = time.time()
+        
+        commit_counter = 0
+        set_fetch_cancel(False)
+        
+        # Send initial status
+        yield f"data: {json.dumps({'status': 'starting', 'total': total, 'processed': 0, 'updated': 0, 'skipped': 0})}\n\n"
+        
+        for game in rows:
+            if processed % 10 == 0:
+                if is_fetch_cancelled():
+                    cancelled = True
+                    break
+            
+            gid = game["id"]
+            title = game["title"]
+            existing_cover = game["cover_url"]
+            
+            if existing_cover and existing_cover.lower() != "null" and not force:
+                skipped += 1
+                processed += 1
+                continue
+            
+            safe_title = sanitize_filename(title)
+            safe_console = console_name.lower().replace(" ", "_")
+            cover_filename = f"{safe_console}/{safe_title}.jpg"
+            cover_path = Path(COVERS_DIR) / cover_filename
+            cover_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            cover_url = None
+            try:
+                if source == "duckduckgo":
+                    cover_url = fetch_duckduckgo_cover(title, console_name)
+                else:
+                    rawg_game = fetch_rawg_game(title)
+                    if rawg_game and rawg_game.get("background_image"):
+                        cover_url = rawg_game["background_image"]
+            except Exception as e:
+                logger.warning(f"Cover search failed for {title}: {e}")
+            
+            if cover_url:
+                try:
+                    response = requests.get(cover_url, timeout=15)
+                    if response.status_code == 200:
+                        with open(cover_path, "wb") as f:
+                            f.write(response.content)
+                        
+                        local_meta = save_metadata_json(gid, {
+                            "source": "downloaded",
+                            "source_type": source,
+                            "original_url": cover_url,
+                        })
+                        
+                        cur.execute(
+                            "UPDATE games SET cover_url = ?, metadata_json = ? WHERE id = ?;",
+                            (f"/covers/{cover_filename}", local_meta, gid),
+                        )
+                        updated += 1
+                except Exception as e:
+                    logger.warning(f"Cover download failed for {title}: {e}")
+            
+            if not cover_url:
+                skipped += 1
+            
+            processed += 1
+            commit_counter += 1
+            
+            if commit_counter >= batch_commit:
+                conn.commit()
+                commit_counter = 0
+            
+            # Send progress update every 5 games or on last
+            if processed % 5 == 0 or processed == total:
+                progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+                yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'current': title})}\n\n"
+        
+        conn.commit()
+        set_fetch_cancel(False)
+        
+        end = time.time()
+        progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+        
+        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'elapsed': round(end - start, 2)})}\n\n"
+        
+    except Exception as e:
+        logger.error(f"Stream error: {e}")
+        yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+
+
+@app.get("/api/consoles/{cid}/fetch-covers/stream")
+def fetch_covers_stream(cid: int, force: bool = Query(False), source: str = Query("rawg"), letter: str = Query(None), batch_commit: int = Query(50)):
+    """Fetch covers with real-time SSE progress updates."""
+    return StreamingResponse(
+        generate_cover_progress_stream(cid, force, source, letter, batch_commit),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post("/api/consoles/{cid}/fetch-covers/cancel")
+def cancel_fetch_covers(cid: int):
+    """Cancel an ongoing fetch covers operation"""
+    set_fetch_cancel(True)
+    return {"status": "ok", "cancelled": True}
+
+
+@app.post("/api/consoles/{cid}/fetch-screenshots/cancel")
+def cancel_fetch_screenshots(cid: int):
+    """Cancel an ongoing fetch screenshots operation"""
+    set_fetch_cancel(True)
+    return {"status": "ok", "cancelled": True}
+
 
 def sanitize_filename(title: str) -> str:
     """Sanitize title for filename"""
@@ -2205,9 +2471,11 @@ def sanitize_query(title: str) -> str:
     return safe.strip()
 
 @app.post("/api/consoles/{cid}/fetch-screenshots")
-def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: str = Query("duckduckgo")):
+def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: str = Query("duckduckgo"), letter: str = Query(None), batch_commit: int = Query(50)):
     """Fetch and save screenshots for games. Use force=true to re-fetch all, false for missing only.
-    source can be 'duckduckgo' or 'rawg'."""
+    source can be 'duckduckgo' or 'rawg'.
+    letter can be A-Z or 0-9 to filter by starting letter.
+    batch_commit is the number of games to process before committing (default 50)."""
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2218,43 +2486,73 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
             raise HTTPException(status_code=404, detail="Console not found")
         
         console_name = console["name"]
-        logger.info(f"[DEBUG] Console name: '{console_name}', source: '{source}'")
+        logger.info(f"[DEBUG] Console name: '{console_name}', source: '{source}', letter: '{letter}'")
         
         # If force=true, delete existing screenshots first
         if force:
-            cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
-            logger.info(f"Cleared existing screenshots for console {cid}")
+            # Build delete query with letter filter if provided
+            if letter:
+                if letter == "0":
+                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
+                else:
+                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid,), (f"{letter}%",))
+                logger.info(f"Cleared existing screenshots for console {cid} letter {letter}")
+            else:
+                cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
+                logger.info(f"Cleared existing screenshots for console {cid}")
 
+        # Build query with optional letter filter
+        base_where = "WHERE g.console_id = ?"
+        params = [cid]
+        
+        if letter:
+            if letter == "0":
+                base_where += " AND g.title GLOB '[0-9]*'"
+            else:
+                base_where += " AND g.title LIKE ?"
+                params.append(f"{letter}%")
+        
         # Games with MISSING screenshots (smart fetching) or all games (force)
         if force:
-            cur.execute(
-                """
-                SELECT id, title
-                FROM games
-                WHERE console_id = ?
-                ORDER BY title;
-                """,
-                (cid,),
-            )
+            query = f"""
+            SELECT id, title
+            FROM games
+            WHERE console_id = ?
+            """
+            if letter:
+                if letter == "0":
+                    query += " AND title GLOB '[0-9]*'"
+                else:
+                    query += " AND title LIKE ?"
+                    params.append(f"{letter}%")
+            query += " ORDER BY title;"
         else:
-            cur.execute(
-                """
-                SELECT g.id, g.title
-                FROM games g
-                LEFT JOIN screenshots s ON g.id = s.game_id
-                WHERE g.console_id = ?
-                GROUP BY g.id
-                HAVING COUNT(s.id) = 0;
-                """,
-                (cid,),
-            )
+            query = f"""
+            SELECT g.id, g.title
+            FROM games g
+            LEFT JOIN screenshots s ON g.id = s.game_id
+            {base_where}
+            GROUP BY g.id
+            HAVING COUNT(s.id) = 0
+            ORDER BY g.title;
+            """
+        
+        cur.execute(query, params)
         rows = cur.fetchall()
+
+        if not rows:
+            conn.close()
+            raise HTTPException(status_code=404, detail="No games found for this filter")
 
         updated = 0
         skipped = 0
-        now = datetime.utcnow().isoformat()
-
-        logger.info(f"Fetching screenshots for {len(rows)} games in console {cid} using {source}")
+        processed = 0
+        total = len(rows)
+        
+        logger.info(f"Fetching screenshots for {total} games in console {cid} using {source} (letter={letter})")
+        
+        # Batch commit counter
+        commit_counter = 0
 
         for r in rows:
             gid = r["id"]
@@ -2264,6 +2562,7 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
                 raw_screens = fetch_duckduckgo_screenshots(title, console_name, limit=5)
                 if not raw_screens:
                     skipped += 1
+                    processed += 1
                     continue
                 
                 screenshots_urls = []
@@ -2280,17 +2579,20 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
                 rawg_game = fetch_rawg_game(title, cid)
                 if not rawg_game:
                     skipped += 1
+                    processed += 1
                     continue
 
                 rawg_id = rawg_game.get("id")
                 if not rawg_id:
                     skipped += 1
+                    processed += 1
                     continue
 
                 # Fetch screenshots
                 raw_screens = fetch_rawg_screenshots(rawg_id, limit=5)
                 if not raw_screens:
                     skipped += 1
+                    processed += 1
                     continue
 
                 screenshots_urls = []
@@ -2317,17 +2619,188 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
                 updated += 1
             else:
                 skipped += 1
+            
+            processed += 1
+            commit_counter += 1
+            
+            # Batch commit
+            if commit_counter >= batch_commit:
+                conn.commit()
+                commit_counter = 0
+                logger.debug(f"Batch commit at {processed}/{total}")
 
         conn.commit()
         conn.close()
         
-        logger.info(f"Screenshots completed: {updated} fetched, {skipped} skipped")
-        return {"status": "ok", "updated": updated, "skipped": skipped}
+        progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+        logger.info(f"Screenshots completed: {updated} fetched, {skipped} skipped, processed: {processed}/{total}")
+        return {"status": "ok", "updated": updated, "skipped": skipped, "processed": processed, "total": total, "progress_pct": progress_pct}
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to fetch screenshots: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch screenshots")
+
+
+def generate_screenshot_progress_stream(cid: int, force: bool, source: str, letter: str, batch_commit: int):
+    """Generator that yields SSE progress updates for screenshot fetching."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id, name FROM consoles WHERE id = ?;", (cid,))
+        console = cur.fetchone()
+        if not console:
+            yield f"data: {json.dumps({'error': 'Console not found'})}\n\n"
+            return
+
+        console_name = console["name"]
+
+        if force:
+            if letter:
+                if letter == "0":
+                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
+                else:
+                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid,), (f"{letter}%",))
+            else:
+                cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
+
+        base_where = "WHERE g.console_id = ?"
+        params = [cid]
+
+        if letter:
+            if letter == "0":
+                base_where += " AND g.title GLOB '[0-9]*'"
+            else:
+                base_where += " AND g.title LIKE ?"
+                params.append(f"{letter}%")
+
+        if force:
+            query = "SELECT id, title FROM games WHERE console_id = ?"
+            if letter:
+                if letter == "0":
+                    query += " AND title GLOB '[0-9]*'"
+                else:
+                    query += " AND title LIKE ?"
+                    params.append(f"{letter}%")
+            query += " ORDER BY title;"
+        else:
+            query = f"""
+            SELECT g.id, g.title
+            FROM games g
+            LEFT JOIN screenshots s ON g.id = s.game_id
+            {base_where}
+            GROUP BY g.id
+            HAVING COUNT(s.id) = 0
+            ORDER BY g.title;
+            """
+
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+        if not rows:
+            yield f"data: {json.dumps({'error': 'No games found for this filter'})}\n\n"
+            return
+
+        total = len(rows)
+        updated = 0
+        skipped = 0
+        processed = 0
+        cancelled = False
+
+        logger.info(f"Streaming screenshots for {total} games in console {cid}")
+        start = time.time()
+
+        commit_counter = 0
+        set_fetch_cancel(False)
+
+        yield f"data: {json.dumps({'status': 'starting', 'total': total, 'processed': 0, 'updated': 0, 'skipped': 0})}\n\n"
+
+        for game in rows:
+            if processed % 10 == 0:
+                if is_fetch_cancelled():
+                    cancelled = True
+                    break
+
+            gid = game["id"]
+            title = game["title"]
+
+            screenshots_urls = []
+            try:
+                if source == "duckduckgo":
+                    images = search_duckduckgo_images(f"{title} {console_name} screenshot")
+                    for img_url in images[:5]:
+                        img = download_image(img_url)
+                        if img:
+                            local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
+                            if local_s:
+                                screenshots_urls.append(local_s)
+                else:
+                    rawg_game = fetch_rawg_game(title)
+                    if rawg_game and rawg_game.get("short_screenshots"):
+                        raw_screens = rawg_game["short_screenshots"]
+                        index = 1
+                        for s in raw_screens:
+                            s_url = s.get("image")
+                            if not s_url:
+                                continue
+                            img = download_image(s_url)
+                            if not img:
+                                continue
+                            local_s = save_screenshot(img, gid, index)
+                            if local_s:
+                                screenshots_urls.append(local_s)
+                                index += 1
+            except Exception as e:
+                logger.warning(f"Screenshot search failed for {title}: {e}")
+
+            if screenshots_urls:
+                for url in screenshots_urls:
+                    cur.execute(
+                        "INSERT INTO screenshots (game_id, url) VALUES (?, ?);",
+                        (gid, url),
+                    )
+                updated += 1
+            else:
+                skipped += 1
+
+            processed += 1
+            commit_counter += 1
+
+            if commit_counter >= batch_commit:
+                conn.commit()
+                commit_counter = 0
+
+            if processed % 5 == 0 or processed == total:
+                progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+                yield f"data: {json.dumps({'status': 'progress', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'current': title})}\n\n"
+
+        conn.commit()
+        conn.close()
+        set_fetch_cancel(False)
+
+        end = time.time()
+        progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
+
+        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'elapsed': round(end - start, 2)})}\n\n"
+
+    except Exception as e:
+        logger.error(f"Stream error: {e}")
+        yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+
+
+@app.get("/api/consoles/{cid}/fetch-screenshots/stream")
+def fetch_screenshots_stream(cid: int, force: bool = Query(False), source: str = Query("duckduckgo"), letter: str = Query(None), batch_commit: int = Query(50)):
+    """Fetch screenshots with real-time SSE progress updates."""
+    return StreamingResponse(
+        generate_screenshot_progress_stream(cid, force, source, letter, batch_commit),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 # -------------------------------------------------------------------
 # API: Upload Cover Image
@@ -2825,12 +3298,12 @@ async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
             logger.error(f"Failed to open image: {e}")
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-         conn = get_conn()
-         cur = conn.cursor()
-         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-         index = cur.fetchone()[0] + 1
-         
-         local_screenshot = save_screenshot(img, game_id, index)
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
+        index = cur.fetchone()[0] + 1
+        
+        local_screenshot = save_screenshot(img, game_id, index)
         if not local_screenshot:
             conn.close()
             raise HTTPException(status_code=500, detail="Failed to save screenshot")
@@ -2870,16 +3343,16 @@ def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
             conn.close()
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_SCREENSHOTS_PER_GAME} screenshots allowed per game")
         
-         url = data.url
-         if not url:
-             conn.close()
-             raise HTTPException(status_code=400, detail="URL is required")
-         
-         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-         index = cur.fetchone()[0] + 1
-         conn.close()
-         
-         img = download_image(url)
+        url = data.url
+        if not url:
+            conn.close()
+            raise HTTPException(status_code=400, detail="URL is required")
+        
+        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
+        index = cur.fetchone()[0] + 1
+        conn.close()
+        
+        img = download_image(url)
         if not img:
             raise HTTPException(status_code=400, detail="Failed to download image from URL")
         
