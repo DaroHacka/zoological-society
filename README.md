@@ -14,14 +14,47 @@ This project is built for people who want a personal archive that feels **beauti
 
 ## 📰 What's New (Latest Updates)
 
-### Version 2.1 - Fetching & UI Improvements
+### Version 2.2 - Metadata, Genres & Status Overhaul
 
-#### 🚀 Fetching Upgrades
+#### 🗄️ Database & Backend
+- **SQLite WAL Mode** - Concurrent read/write access, no more locking errors during fetches
+- **Bulk Fetch Lock** - Serializes bulk operations so only one runs at a time
+- **DB Key Sync** - API keys from `.env` are synced to the database on startup automatically
+
+#### 🎮 TheGamesDB Integration
+- **Third Metadata Provider** - TheGamesDB as a new source for cover art and screenshots
+- **Rate Limiting** - Built-in rate limiter to protect against monthly quota exhaustion
+- **API Key Management** - Add/remove API keys for RAWG and TheGamesDB from the Options modal
+
+#### 🏷️ Genre System
+- **Genre Normalization** - Archive-wide consistent casing (e.g. "RPG" not "rpg", "Rpg", "Rpgs")
+- **Genre Suggestions** - Typing in the genre field shows archive-wide unique genre suggestions
+- **Genres Endpoint** - Dedicated `/api/genres` endpoint returning all unique genres in the archive
+- **Console Catalog** - Canonical catalog of 117 consoles with TheGamesDB/RAWG platform IDs
+
+#### 📝 Notes & Status
+- **Game Notes** - Add free-text notes to any game (visible on game detail and thumbnails)
+- **Printed Status** - Mark games as printed with a printer icon 🖨️
+- **Thumbnail Badges** - Completed (✅) and printed (🖨️) badges on game thumbnails
+- **Markdown Descriptions** - Bold, italic, and paragraph formatting in game descriptions and notes
+
+#### 🖼️ Fetch Source Selection
+- **Default Source** - Choose your preferred source (Auto, DuckDuckGo, TheGamesDB, RAWG) for covers and screenshots
+- **Per-Operation Override** - Options modal lets you set defaults that apply to every single-game fetch
+- **Auto Fallback** - "Auto" mode chains DuckDuckGo → TheGamesDB → RAWG with automatic fallback
+
+---
+
+### Previous Implementations
+
+#### Version 2.1 - Fetching & UI Improvements
+
+##### 🚀 Fetching Upgrades
 - **Real-time Progress** - See live progress when fetching covers and screenshots with SSE streaming (shows X/Y games, percentage, elapsed time)
 - **Batch by Letter** - Filter fetching by starting letter (A-Z, 0-9) to process games in chunks
 - **Cancel Fetch** - Ability to cancel ongoing fetch operations mid-way
 
-#### 🎨 UI Improvements  
+##### 🎨 UI Improvements  
 - **Page Jump** - Type a page number directly in the pagination input to jump ahead
 - **Screenshot Grid** - Improved 5-column grid with consistent sizing
 - **Screenshot Navigation** - Fixed lightbox navigation to correctly track clicked screenshot
