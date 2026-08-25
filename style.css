@@ -263,7 +263,7 @@ body {
 }
 
 #console-list li {
-  padding: 8px 10px 8px 60px;
+  padding: 8px 10px 8px 84px;
   border-radius: var(--radius);
   cursor: pointer;
   color: var(--text-muted);
@@ -331,6 +331,17 @@ body {
 .edit-console-btn:hover {
   background: rgba(107, 255, 107, 0.2);
   color: #52ff52;
+}
+
+.console-icon {
+  position: absolute;
+  left: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 4px;
 }
 
 /* Genre Filter */
@@ -708,6 +719,33 @@ body {
   position: relative;
 }
 
+/* Always-visible status badges on thumbnails */
+.game-card-status-badge {
+  position: absolute;
+  z-index: 11;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+.game-card-completed-badge {
+  bottom: 4px;
+  right: 4px;
+  background: rgba(34, 197, 94, 0.9);
+  color: #fff;
+}
+.game-card-printed-badge {
+  bottom: 4px;
+  left: 4px;
+  background: rgba(59, 130, 246, 0.9);
+  color: #fff;
+}
+
 .game-cover img {
   width: 100%;
   height: 100%;
@@ -1017,6 +1055,29 @@ button:disabled {
   gap: 8px;
 }
 
+/* Genre Suggestions Dropdown (appended to body, fixed-positioned) */
+.genre-suggestions {
+  display: none;
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg-alt);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.genre-suggestion-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 0.85rem;
+}
+.genre-suggestion-item:hover,
+.genre-suggestion-item.active {
+  background: var(--bg-hover);
+}
+
 /* Game Detail Modal */
 
 .modal-game-content {
@@ -1303,13 +1364,12 @@ button:disabled {
   right: 0;
   bottom: 0;
   background: rgba(0, 0, 0, 0.95);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   z-index: 1000;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease;
+  overflow: hidden;
+  cursor: grab;
 }
 
 .lightbox.active {
@@ -1317,19 +1377,19 @@ button:disabled {
   pointer-events: all;
 }
 
-.lightbox-content {
-  position: relative;
-  max-width: 90vw;
-  max-height: 90vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.lightbox.dragging {
+  cursor: grabbing;
 }
 
 .lightbox img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  cursor: zoom-in;
+}
+
+.lightbox img.zoomed {
+  cursor: zoom-out;
 }
 
 .lightbox-close {
@@ -1903,4 +1963,180 @@ button:disabled {
 #add-games-list:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+/* ============================================
+   COLLECTIONS
+   ============================================ */
+
+#collections-section h3 {
+  user-select: none;
+  padding: 8px 0;
+}
+
+#collections-section h3:hover {
+  color: var(--accent);
+}
+
+.collection-item {
+  padding: 8px 10px 8px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.collection-item:hover {
+  background: rgba(255, 180, 0, 0.08);
+  color: var(--text-main);
+}
+
+.collection-item.active {
+  background: rgba(255, 180, 0, 0.15);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.collection-item .collection-name {
+  font-size: 0.95rem;
+  flex: 1;
+}
+
+.collection-item .collection-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0 8px;
+}
+
+.delete-collection-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  color: #ff6b6b;
+}
+
+.collection-item:hover .delete-collection-btn {
+  opacity: 1;
+}
+
+.delete-collection-btn:hover {
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff5252;
+}
+
+/* Game Detail Collections */
+
+.game-detail-collections {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.game-detail-collections h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.collection-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.collection-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 180, 0, 0.15);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  font-size: 0.85rem;
+  color: var(--accent);
+  cursor: default;
+}
+
+.collection-tag-remove {
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  margin-left: 2px;
+}
+
+.collection-tag-remove:hover {
+  opacity: 1;
+  color: #ff6b6b;
+}
+
+.no-collections {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.add-to-collection {
+  position: relative;
+}
+
+.add-to-collection input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-subtle);
+  background: var(--card-bg);
+  color: var(--text-main);
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.add-to-collection input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.collection-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  max-height: 150px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-top: 4px;
+}
+
+.collection-suggestion {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  transition: all 0.2s;
+}
+
+.collection-suggestion:hover {
+  background: rgba(255, 180, 0, 0.1);
+  color: var(--text-main);
+}
+
+.collection-suggestion:first-child {
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.collection-suggestion:last-child {
+  border-radius: 0 0 var(--radius) var(--radius);
 }

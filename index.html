@@ -33,7 +33,7 @@
       <div class="header-right">
         <button id="btn-home" onclick="goToHomepage()">Home</button>
         <button id="btn-add-console">Add console</button>
-        <button id="btn-theme">Theme & layout</button>
+        <button id="btn-theme">Options &#9881;&#65039;</button>
         <button id="btn-random-header" class="icon-btn" onclick="onRandomHeader()" title="Random Header">🔄</button>
       </div>
     </header>
@@ -69,6 +69,17 @@
             <li data-status="completed" class="status-filter-item" onclick="applyStatusFilter('completed')">✅ Completed <span class="count" id="count-completed">0</span></li>
             <li data-status="dropped" class="status-filter-item" onclick="applyStatusFilter('dropped')">❌ Dropped <span class="count" id="count-dropped">0</span></li>
             <li data-status="on_hold" class="status-filter-item" onclick="applyStatusFilter('on_hold')">⏸️ On Hold <span class="count" id="count-on_hold">0</span></li>
+          </ul>
+        </div>
+
+        <!-- Collections -->
+        <div id="collections-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleCollectionsList()">
+            🗂️ Collections <span id="collections-toggle-icon">▶</span>
+          </h3>
+          <button onclick="openCreateCollectionModal()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;display:none;" id="btn-create-collection">+ New Collection</button>
+          <ul id="collections-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
+            <!-- Filled by JS -->
           </ul>
         </div>
       </aside>
@@ -218,9 +229,13 @@
       </div>
       
       <label>
-        Console name
-        <input type="text" id="console-name-input" placeholder="Nintendo Switch" />
+        Console
+        <input type="text" id="console-name-input" list="console-catalog-list" placeholder="Type to search known consoles..." autocomplete="off" />
+        <datalist id="console-catalog-list"></datalist>
       </label>
+      <p id="console-catalog-hint" style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
+        Start typing to pick from the built-in catalog (enables correct cover/screenshot matching). Custom names are also allowed.
+      </p>
       
       <label id="console-path-label">
         Folder path (absolute path)
@@ -237,7 +252,7 @@
   <!-- Theme Modal -->
   <div class="modal hidden" id="modal-theme">
     <div class="modal-content">
-      <h2>Theme & layout</h2>
+      <h2>Options</h2>
       <label>
         Background color
         <input type="color" id="theme-bg-color" value="#101018" />
@@ -265,6 +280,49 @@
       <div class="theme-header-actions">
         <button type="button" id="btn-theme-random-header" class="secondary">🔄 Random Header</button>
       </div>
+
+      <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
+      <h2 style="margin-top: 0;">API keys</h2>
+      <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
+        Keys are stored on the server and used for cover/screenshot lookups. Leave blank to keep the current value.
+      </p>
+      <label>
+        RAWG API key
+        <input type="text" id="apikey-rawg" placeholder="not set" autocomplete="off" />
+      </label>
+      <label>
+        TheGamesDB API key
+        <input type="text" id="apikey-tgdb" placeholder="not set" autocomplete="off" />
+      </label>
+      <div id="apikey-status" style="min-height: 1.2em; font-size: 0.85rem; color: var(--text-muted);"></div>
+      <div class="modal-actions">
+        <button id="btn-apikeys-save">Save keys</button>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
+      <h2 style="margin-top: 0;">Default fetch source</h2>
+      <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
+        Used when fetching covers or screenshots for a single game. "Auto" uses the fallback chain.
+      </p>
+      <label>
+        Cover source
+        <select id="default-cover-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
+          <option value="auto">Auto (DuckDuckGo → TheGamesDB)</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="tgdb">TheGamesDB</option>
+          <option value="rawg">RAWG</option>
+        </select>
+      </label>
+      <label>
+        Screenshot source
+        <select id="default-screenshot-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
+          <option value="auto">Auto (DuckDuckGo → TheGamesDB → RAWG)</option>
+          <option value="duckduckgo">DuckDuckGo</option>
+          <option value="tgdb">TheGamesDB</option>
+          <option value="rawg">RAWG</option>
+        </select>
+      </label>
+
       <div class="modal-actions">
         <button id="btn-theme-cancel">Cancel</button>
         <button id="btn-theme-save">Save</button>
@@ -327,7 +385,7 @@
       
       <label>
         Genre
-        <input type="text" id="edit-game-genre" placeholder="Action, Adventure, RPG" />
+        <input type="text" id="edit-game-genre" placeholder="Action, Adventure, RPG" autocomplete="off" />
       </label>
       
       <label>
@@ -362,11 +420,19 @@
             <input type="checkbox" id="edit-status-on-hold" />
             <span>⏸️ On Hold</span>
           </label>
+          <label class="status-checkbox">
+            <input type="checkbox" id="edit-status-printed" />
+            <span>🖨️ Printed</span>
+          </label>
         </div>
       </label>
       <label id="completed-date-label" class="hidden">
         Completion Notes (date + comments)
         <textarea id="edit-completed-date" rows="4" placeholder="e.g., Completed 02/21/2026&#10;This game was amazing!&#10;Finally finished after 50 hours..."></textarea>
+      </label>
+      <label>
+        Notes
+        <textarea id="edit-game-notes" rows="3" placeholder="Write notes about this game (visible on the game detail page)..."></textarea>
       </label>
       
       <div class="modal-actions">
@@ -434,6 +500,17 @@
     </div>
   </div>
 
+  <!-- Notes Comment Modal -->
+  <div class="modal hidden" id="modal-notes-comment">
+    <div class="modal-content" style="max-width: 500px; max-height: 400px;">
+      <h2>Notes</h2>
+      <div id="notes-comment-content" style="overflow-y: auto; max-height: 300px; padding: 12px; background: var(--card-bg); border-radius: var(--radius);"></div>
+      <div class="modal-actions">
+        <button onclick="toggleModal('#modal-notes-comment', false)">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Add Game Modal -->
   <div class="modal hidden" id="modal-add-game">
     <div class="modal-content">
@@ -476,13 +553,30 @@ Spyro the Dragon"></textarea>
 
   <!-- Screenshot Lightbox -->
   <div class="lightbox" id="screenshot-lightbox">
-    <div class="lightbox-content">
-      <button class="lightbox-close" onclick="closeLightbox()">×</button>
-      <button class="lightbox-nav lightbox-prev" onclick="previousScreenshot()">❮</button>
-      <img id="lightbox-img" src="" alt="Full size screenshot" />
-      <button class="lightbox-nav lightbox-next" onclick="nextScreenshot()">❯</button>
-      <div class="lightbox-counter">
-        <span id="lightbox-current">1</span> / <span id="lightbox-total">1</span>
+    <button class="lightbox-close" onclick="closeLightbox()">×</button>
+    <button class="lightbox-nav lightbox-prev" onclick="previousScreenshot()">❮</button>
+    <img id="lightbox-img" src="" alt="Full size screenshot" />
+    <button class="lightbox-nav lightbox-next" onclick="nextScreenshot()">❯</button>
+    <div class="lightbox-counter">
+      <span id="lightbox-current">1</span> / <span id="lightbox-total">1</span>
+    </div>
+  </div>
+
+  <!-- Create Collection Modal -->
+  <div class="modal hidden" id="modal-create-collection">
+    <div class="modal-content">
+      <h2>Create Collection</h2>
+      <label>
+        Collection Name
+        <input type="text" id="create-collection-name" placeholder="e.g., Summer Camp Games" />
+      </label>
+      <label>
+        Description (optional)
+        <input type="text" id="create-collection-desc" placeholder="A short description..." />
+      </label>
+      <div class="modal-actions">
+        <button onclick="closeCreateCollectionModal()">Cancel</button>
+        <button id="btn-create-collection-confirm" onclick="confirmCreateCollection()">Create</button>
       </div>
     </div>
   </div>
@@ -535,6 +629,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=33"></script>
+  <script src="app.v2.js?v=34"></script>
 </body>
 </html>

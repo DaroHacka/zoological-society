@@ -49,6 +49,11 @@ let archiveStats = {
 
 let consoleStats = null;
 
+// Collection state
+let collections = [];
+let currentCollectionId = null;
+let currentCollectionGames = [];
+
 // Genre filter state
 let genres = [];
 
@@ -73,13 +78,9 @@ function openLightbox(imageSrc) {
   const lightbox = document.getElementById("screenshot-lightbox");
   const img = document.getElementById("lightbox-img");
   
-  // Extract URLs from screenshot objects for lightbox
   const screenshotUrls = currentLightboxScreenshots.map(s => s.url || s);
-  
-  // Strip timestamp from clicked image URL for matching
   const cleanImageSrc = imageSrc.split('?t=')[0];
   
-  // Find the index of clicked screenshot by matching filename
   currentLightboxIndex = screenshotUrls.findIndex(url => {
     const cleanUrl = url.split('?t=')[0];
     return cleanUrl === cleanImageSrc || cleanUrl.endsWith(cleanImageSrc.split('/').pop());
@@ -89,7 +90,7 @@ function openLightbox(imageSrc) {
     currentLightboxIndex = 0;
   }
   
-  img.src = imageSrc;
+  setupLightboxImage(img, imageSrc);
   lightbox.classList.add("active");
   updateLightboxCounter();
 }
@@ -97,6 +98,8 @@ function openLightbox(imageSrc) {
 function closeLightbox() {
   const lightbox = document.getElementById("screenshot-lightbox");
   lightbox.classList.remove("active");
+  resetDrag();
+  resetZoom();
 }
 
 function nextScreenshot() {
@@ -115,7 +118,7 @@ function updateLightbox() {
   const img = document.getElementById("lightbox-img");
   const screenshot = currentLightboxScreenshots[currentLightboxIndex];
   const screenshotUrl = screenshot.url || screenshot;
-  img.src = toAbsoluteUrl(screenshotUrl) + "?t=" + Date.now();
+  setupLightboxImage(img, toAbsoluteUrl(screenshotUrl) + "?t=" + Date.now());
   updateLightboxCounter();
 }
 
@@ -132,13 +135,190 @@ function openCoverLightbox(imageSrc) {
   const lightbox = document.getElementById("screenshot-lightbox");
   const img = document.getElementById("lightbox-img");
   
-  // For cover, we don't have multiple images, so just show the cover
-  img.src = imageSrc;
+  setupLightboxImage(img, imageSrc);
   lightbox.classList.add("active");
   
-  // Hide the counter since there's only one image
   document.getElementById("lightbox-current").textContent = "1";
   document.getElementById("lightbox-total").textContent = "1";
+}
+
+// -----------------------------------------------------------
+// Lightbox drag-to-pan
+// -----------------------------------------------------------
+
+let isDragging = false;
+let wasDragged = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let dragOffsetX = 0;
+let dragOffsetY = 0;
+let isZoomed = false;
+let isTouchDrag = false;
+
+function canDrag(img) {
+  if (!img || !img.complete || img.naturalWidth === 0) return false;
+  return img.offsetWidth > window.innerWidth || img.offsetHeight > window.innerHeight;
+}
+
+function clampDrag(img, dx, dy) {
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const iw = img.offsetWidth, ih = img.offsetHeight;
+  return {
+    x: Math.max(Math.min(0, vw - iw), Math.min(Math.max(0, vw - iw), dx)),
+    y: Math.max(Math.min(0, vh - ih), Math.min(Math.max(0, vh - ih), dy))
+  };
+}
+
+function centerImage(img) {
+  if (!img.complete || img.naturalWidth === 0) return;
+  const c = clampDrag(img, (window.innerWidth - img.offsetWidth) / 2, (window.innerHeight - img.offsetHeight) / 2);
+  dragOffsetX = c.x;
+  dragOffsetY = c.y;
+  img.style.transform = `translate(${c.x}px, ${c.y}px)`;
+}
+
+function resetDrag() {
+  isDragging = false;
+  wasDragged = false;
+  dragOffsetX = 0;
+  dragOffsetY = 0;
+  const lightbox = document.getElementById("screenshot-lightbox");
+  if (lightbox) lightbox.classList.remove("dragging");
+}
+
+function resetZoom() {
+  isZoomed = false;
+  const img = document.getElementById("lightbox-img");
+  if (img) {
+    img.classList.remove("zoomed");
+    img.style.removeProperty("height");
+    img.style.removeProperty("width");
+  }
+}
+
+function toggleFit() {
+  const img = document.getElementById("lightbox-img");
+  if (!img.complete || img.naturalWidth === 0) return;
+
+  if (isZoomed) {
+    isZoomed = false;
+    img.classList.remove("zoomed");
+    img.style.removeProperty("height");
+    img.style.removeProperty("width");
+    img.style.transform = "";
+    isDragging = false;
+    wasDragged = false;
+    centerImage(img);
+  } else {
+    isZoomed = true;
+    img.classList.add("zoomed");
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const scale = Math.min(vw / img.naturalWidth, vh / img.naturalHeight);
+    const fitW = img.naturalWidth * scale;
+    const fitH = img.naturalHeight * scale;
+    img.style.height = fitH + "px";
+    img.style.width = fitW + "px";
+    const dx = (vw - fitW) / 2;
+    const dy = (vh - fitH) / 2;
+    img.style.transform = `translate(${dx}px, ${dy}px)`;
+    dragOffsetX = dx;
+    dragOffsetY = dy;
+    isDragging = false;
+    wasDragged = false;
+  }
+}
+
+function setupLightboxImage(img, src) {
+  resetDrag();
+  resetZoom();
+  img.style.transform = "";
+  img.src = src;
+  const onLoad = () => {
+    centerImage(img);
+    img.removeEventListener("load", onLoad);
+  };
+  if (img.complete) {
+    centerImage(img);
+  } else {
+    img.addEventListener("load", onLoad);
+  }
+}
+
+function onDragStart(e) {
+  if (e.button !== 0) return;
+  const img = document.getElementById("lightbox-img");
+  if (!canDrag(img)) return;
+  isDragging = true;
+  isTouchDrag = false;
+  wasDragged = false;
+  dragStartX = e.clientX - dragOffsetX;
+  dragStartY = e.clientY - dragOffsetY;
+  document.getElementById("screenshot-lightbox").classList.add("dragging");
+  e.preventDefault();
+}
+
+function onDragMove(e) {
+  if (!isDragging) return;
+  wasDragged = true;
+  const img = document.getElementById("lightbox-img");
+  const dx = e.clientX - dragStartX;
+  const dy = e.clientY - dragStartY;
+  const c = clampDrag(img, dx, dy);
+  dragOffsetX = c.x;
+  dragOffsetY = c.y;
+  img.style.transform = `translate(${c.x}px, ${c.y}px)`;
+}
+
+function onDragEnd() {
+  if (!isDragging) return;
+  const tapped = isTouchDrag && !wasDragged;
+  isDragging = false;
+  isTouchDrag = false;
+  document.getElementById("screenshot-lightbox").classList.remove("dragging");
+  if (tapped) toggleFit();
+}
+
+function onTouchStart(e) {
+  if (e.touches.length !== 1) return;
+  const img = document.getElementById("lightbox-img");
+  if (!canDrag(img)) return;
+  isDragging = true;
+  isTouchDrag = true;
+  wasDragged = false;
+  dragStartX = e.touches[0].clientX - dragOffsetX;
+  dragStartY = e.touches[0].clientY - dragOffsetY;
+  document.getElementById("screenshot-lightbox").classList.add("dragging");
+  e.preventDefault();
+}
+
+function onTouchMove(e) {
+  if (!isDragging || e.touches.length !== 1) return;
+  wasDragged = true;
+  const img = document.getElementById("lightbox-img");
+  const dx = e.touches[0].clientX - dragStartX;
+  const dy = e.touches[0].clientY - dragStartY;
+  const c = clampDrag(img, dx, dy);
+  dragOffsetX = c.x;
+  dragOffsetY = c.y;
+  img.style.transform = `translate(${c.x}px, ${c.y}px)`;
+  e.preventDefault();
+}
+
+function initLightboxDrag() {
+  const img = document.getElementById("lightbox-img");
+  
+  img.addEventListener("mousedown", onDragStart);
+  document.addEventListener("mousemove", onDragMove);
+  document.addEventListener("mouseup", onDragEnd);
+  
+  img.addEventListener("touchstart", onTouchStart, { passive: false });
+  document.addEventListener("touchmove", onTouchMove, { passive: false });
+  document.addEventListener("touchend", onDragEnd, { passive: false });
+  
+  img.addEventListener("click", (e) => {
+    if (wasDragged) return;
+    toggleFit();
+  });
 }
 
 // -----------------------------------------------------------
@@ -340,7 +520,9 @@ async function openEditGameModal(gameId) {
     document.getElementById("edit-status-completed").checked = status.is_completed;
     document.getElementById("edit-status-dropped").checked = status.is_dropped;
     document.getElementById("edit-status-on-hold").checked = status.is_on_hold;
+    document.getElementById("edit-status-printed").checked = status.is_printed;
     document.getElementById("edit-completed-date").value = status.completed_date_note || "";
+    document.getElementById("edit-game-notes").value = status.notes || "";
     
     // Show/hide completed date field
     const completedDateLabel = document.getElementById("completed-date-label");
@@ -353,7 +535,9 @@ async function openEditGameModal(gameId) {
     document.getElementById("edit-status-completed").checked = false;
     document.getElementById("edit-status-dropped").checked = false;
     document.getElementById("edit-status-on-hold").checked = false;
+    document.getElementById("edit-status-printed").checked = false;
     document.getElementById("edit-completed-date").value = "";
+    document.getElementById("edit-game-notes").value = "";
     document.getElementById("completed-date-label").classList.add("hidden");
   }
   
@@ -385,6 +569,7 @@ async function onSaveGameEdit() {
 
     // Save status
     const completedNoteValue = document.getElementById("edit-completed-date").value.trim();
+    const notesValue = document.getElementById("edit-game-notes").value.trim();
     const statusData = {
       is_favorite: document.getElementById("edit-status-favorite").checked,
       has_plan_to_play: document.getElementById("edit-status-plan-to-play").checked,
@@ -392,7 +577,9 @@ async function onSaveGameEdit() {
       is_completed: document.getElementById("edit-status-completed").checked,
       completed_date_note: completedNoteValue || "",
       is_dropped: document.getElementById("edit-status-dropped").checked,
-      is_on_hold: document.getElementById("edit-status-on-hold").checked
+      is_on_hold: document.getElementById("edit-status-on-hold").checked,
+      is_printed: document.getElementById("edit-status-printed").checked,
+      notes: notesValue || "",
     };
     
     await saveGameStatus(gameId, statusData);
@@ -944,6 +1131,257 @@ function loadConsoleListState() {
 }
 
 // -----------------------------------------------------------
+// Collections
+// -----------------------------------------------------------
+
+async function loadCollections() {
+  try {
+    collections = await apiCall("/collections");
+  } catch (e) {
+    collections = [];
+  }
+  renderCollections();
+}
+
+function renderCollections() {
+  const list = $("#collections-list");
+  const createBtn = $("#btn-create-collection");
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  if (collections.length === 0) {
+    list.style.display = "none";
+    if (createBtn) createBtn.style.display = "block";
+    return;
+  }
+
+  if (createBtn) createBtn.style.display = "block";
+
+  collections.forEach((c) => {
+    const li = document.createElement("li");
+    li.className = c.id === currentCollectionId ? "collection-item active" : "collection-item";
+    li.dataset.id = c.id;
+    li.innerHTML = `
+      <span class="collection-name">${c.name}</span>
+      <span class="collection-count">${c.game_count}</span>
+      <button class="delete-collection-btn" onclick="deleteCollection(${c.id}, event)" title="Delete collection">🗑️</button>
+    `;
+    li.addEventListener("click", async (e) => {
+      if (!e.target.classList.contains("delete-collection-btn")) {
+        try {
+          await selectCollection(c.id);
+        } catch (err) {
+          console.error("selectCollection failed:", err);
+        }
+      }
+    });
+    list.appendChild(li);
+  });
+
+  list.style.display = "block";
+}
+
+function toggleCollectionsList() {
+  const list = $("#collections-list");
+  const icon = $("#collections-toggle-icon");
+  const createBtn = $("#btn-create-collection");
+  if (!list) return;
+
+  const collapsed = list.style.display === "none" || list.style.display === "";
+  list.style.display = collapsed ? "block" : "none";
+  icon.textContent = collapsed ? "▼" : "▶";
+  if (createBtn) createBtn.style.display = collapsed ? "block" : "none";
+  localStorage.setItem("collectionsListCollapsed", collapsed ? "false" : "true");
+}
+
+function loadCollectionsListState() {
+  const collapsed = localStorage.getItem("collectionsListCollapsed") !== "false";
+  const list = $("#collections-list");
+  const icon = $("#collections-toggle-icon");
+  const createBtn = $("#btn-create-collection");
+  if (!list) return;
+
+  if (collapsed) {
+    list.style.display = "none";
+    icon.textContent = "▶";
+    if (createBtn) createBtn.style.display = "none";
+  } else {
+    list.style.display = "block";
+    icon.textContent = "▼";
+    if (createBtn) createBtn.style.display = "block";
+  }
+}
+
+function openCreateCollectionModal() {
+  document.getElementById("create-collection-name").value = "";
+  document.getElementById("create-collection-desc").value = "";
+  toggleModal("#modal-create-collection", true);
+}
+
+function closeCreateCollectionModal() {
+  toggleModal("#modal-create-collection", false);
+}
+
+async function confirmCreateCollection() {
+  const name = document.getElementById("create-collection-name").value.trim();
+  const description = document.getElementById("create-collection-desc").value.trim();
+
+  if (!name) {
+    showToast("Collection name is required", "warning");
+    return;
+  }
+
+  try {
+    const collection = await apiCall("/collections", {
+      method: "POST",
+      body: JSON.stringify({ name, description }),
+    });
+    collections.push(collection);
+    renderCollections();
+    toggleModal("#modal-create-collection", false);
+    showToast(`Collection '${name}' created!`, "success");
+  } catch (e) {
+    // Error already shown
+  }
+}
+
+async function deleteCollection(id, event) {
+  if (event) event.stopPropagation();
+
+  const c = collections.find((x) => x.id === id);
+  if (!c) return;
+
+  if (!confirm(`Delete collection '${c.name}'? The games will not be deleted.`)) return;
+
+  try {
+    await apiCall(`/collections/${id}`, { method: "DELETE" });
+    collections = collections.filter((x) => x.id !== id);
+
+    if (currentCollectionId === id) {
+      currentCollectionId = null;
+      currentCollectionGames = [];
+      renderHomepage();
+    }
+
+    renderCollections();
+    loadStats();
+    showToast(`Collection '${c.name}' deleted`, "success");
+  } catch (e) {
+    // Error already shown
+  }
+}
+
+async function selectCollection(id) {
+  try {
+    currentCollectionId = id;
+    currentConsoleId = null;
+    activeFilter = null;
+    activeGenreFilter = null;
+    activeStatusFilter = null;
+    statusFilteredGames = [];
+
+    showConsoleView();
+    savePageState();
+    updateConsoleSummary();
+    renderCollections();
+    renderConsoles();
+
+    try {
+      const games = await apiCall(`/collections/${id}/games`);
+      currentCollectionGames = games;
+    } catch (e) {
+      currentCollectionGames = [];
+    }
+
+    renderCollectionGames();
+  } catch (e) {
+    console.error("selectCollection error:", e);
+  }
+}
+
+function renderCollectionGames() {
+  const container = $("#game-list");
+  const titleEl = $("#console-name");
+  if (!container) return;
+
+  const collection = collections.find((c) => c.id === currentCollectionId);
+  titleEl.textContent = collection ? `📂 ${collection.name}` : "Collection";
+
+  // Hide metadata actions for collection view
+  const alpha = $("#alpha-index");
+  const meta = $("#metadata-actions");
+  if (alpha) alpha.style.display = "none";
+  if (meta) meta.style.display = "none";
+
+  const rescanBtn = $("#btn-rescan-console");
+  const addGameBtn = $("#btn-add-game");
+  if (rescanBtn) rescanBtn.style.display = "none";
+  if (addGameBtn) addGameBtn.style.display = "none";
+
+  container.innerHTML = "";
+
+  if (currentCollectionGames.length === 0) {
+    container.innerHTML = '<p>No games in this collection.</p>';
+    return;
+  }
+
+  currentCollectionGames.forEach((g) => {
+    const card = document.createElement("article");
+    card.className = "game-card";
+    card.dataset.id = g.game_id;
+
+    const cover = g.cover_url
+      ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${g.title} cover" />`
+      : `<div class="no-cover">No cover</div>`;
+
+    card.innerHTML = `
+      <div class="game-cover" style="position: relative;">
+        ${cover}
+        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.game_id}, event)" title="Fetch metadata">🔄</button>
+      </div>
+      <div class="game-title">${g.title}</div>
+      <div class="game-meta">
+        <span class="game-console-badge">${g.console_name}</span>
+        ${g.genre || "Unknown genre"}
+      </div>
+    `;
+
+    card.addEventListener("click", (event) => {
+      if (event.target.closest('.game-card-fetch-btn')) return;
+      openGameDetail(g.game_id);
+    });
+
+    container.appendChild(card);
+  });
+}
+
+async function addGameToCollection(collectionId, gameId) {
+  await apiCall(`/collections/${collectionId}/games/${gameId}`, { method: "POST" });
+}
+
+async function removeGameFromCollection(collectionId, gameId) {
+  await apiCall(`/collections/${collectionId}/games/${gameId}`, { method: "DELETE" });
+}
+
+async function toggleGameCollection(collectionId, gameId, add) {
+  try {
+    if (add) {
+      await addGameToCollection(collectionId, gameId);
+      showToast("Game added to collection", "success");
+    } else {
+      await removeGameFromCollection(collectionId, gameId);
+      showToast("Game removed from collection", "success");
+    }
+    await loadCollections();
+    if (currentCollectionId) await selectCollection(currentCollectionId);
+    renderGameDetailCollections(currentGameDetail);
+  } catch (e) {
+    // apiCall already shows error toast
+  }
+}
+
+// -----------------------------------------------------------
 // Homepage & Stats
 // -----------------------------------------------------------
 
@@ -1030,6 +1468,8 @@ async function loadLastAdded() {
 
 function goToHomepage() {
   currentConsoleId = null;
+  currentCollectionId = null;
+  currentCollectionGames = [];
   activeFilter = null;
   activeGenreFilter = null;
   activeStatusFilter = null;
@@ -1040,9 +1480,11 @@ function goToHomepage() {
   // Clear localStorage state for console
   localStorage.setItem('archive_currentView', 'homepage');
   localStorage.setItem('archive_currentConsoleId', '');
+  localStorage.setItem('archive_currentCollectionId', '');
   
   renderHomepage();
   renderConsoles();
+  renderCollections();
   renderStatusFilters();
 }
 
@@ -1074,6 +1516,12 @@ function showConsoleView() {
   $(".alpha-index").style.display = "block";
   $(".metadata-actions").style.display = "flex";
   $("#game-list").style.display = "grid";
+  
+  // Reset visibility of buttons that may have been hidden in collection view
+  const rescanBtn = $("#btn-rescan-console");
+  const addGameBtn = $("#btn-add-game");
+  if (rescanBtn) rescanBtn.style.display = "";
+  if (addGameBtn) addGameBtn.style.display = "";
 }
 
 // -----------------------------------------------------------
@@ -1295,6 +1743,7 @@ async function recordGameView(gameId) {
 
 function savePageState() {
   localStorage.setItem('archive_currentConsoleId', currentConsoleId || '');
+  localStorage.setItem('archive_currentCollectionId', currentCollectionId || '');
   localStorage.setItem('archive_currentView', currentView);
   localStorage.setItem('archive_activeFilter', activeFilter || '');
   localStorage.setItem('archive_activeGenreFilter', activeGenreFilter || '');
@@ -1305,11 +1754,19 @@ function savePageState() {
 function loadPageState() {
   const savedView = localStorage.getItem('archive_currentView');
   const savedConsoleId = localStorage.getItem('archive_currentConsoleId');
+  const savedCollectionId = localStorage.getItem('archive_currentCollectionId');
   
   if (savedView === 'console' && savedConsoleId) {
     return {
       view: 'console',
       consoleId: parseInt(savedConsoleId)
+    };
+  }
+  
+  if (savedCollectionId) {
+    return {
+      view: 'collection',
+      collectionId: parseInt(savedCollectionId)
     };
   }
   
@@ -1536,11 +1993,13 @@ function initLightboxHandlers() {
   const lightbox = document.getElementById("screenshot-lightbox");
   if (lightbox) {
     lightbox.addEventListener("click", (e) => {
-      if (e.target === lightbox) {
+      if (e.target === lightbox && !wasDragged) {
         closeLightbox();
       }
     });
   }
+
+  initLightboxDrag();
 
   // Keyboard navigation for lightbox and game detail modal
   document.addEventListener("keydown", (e) => {
@@ -1618,6 +2077,7 @@ function bindUI() {
     addConsoleBtn.addEventListener("click", () => {
       document.querySelector('input[name="console-type"][value="folder"]').checked = true;
       toggleConsoleType();
+      populateConsoleCatalog();
       toggleModal("#modal-console", true);
     });
   }
@@ -1625,6 +2085,7 @@ function bindUI() {
   if (themeBtn) {
     themeBtn.addEventListener("click", () => {
       populateThemeModal();
+      refreshApiKeyStatus();
       toggleModal("#modal-theme", true);
     });
   }
@@ -1655,6 +2116,26 @@ function bindUI() {
   if (themeSaveBtn) {
     themeSaveBtn.addEventListener("click", onSaveTheme);
   }
+
+  const apiKeysSaveBtn = $("#btn-apikeys-save");
+  if (apiKeysSaveBtn) {
+    apiKeysSaveBtn.addEventListener("click", onSaveApiKeys);
+  }
+
+  // API key inputs: clear mask on focus, restore on blur if left empty
+  for (const id of ["apikey-rawg", "apikey-tgdb"]) {
+    const inp = $("#" + id);
+    if (!inp) continue;
+    inp.addEventListener("focus", () => {
+      if (inp.value === "••••••••") inp.value = "";
+    });
+    inp.addEventListener("blur", () => {
+      if (!inp.value.trim()) refreshApiKeyStatus();
+    });
+  }
+
+  // Genre suggestion dropdown
+  setupGenreSuggestions();
 
   const themeRemoveHeaderBtn = $("#btn-theme-remove-header");
   if (themeRemoveHeaderBtn) {
@@ -1775,6 +2256,10 @@ async function loadInitialData() {
 
   renderConsoles();
 
+  // Load collections
+  await loadCollections();
+  loadCollectionsListState();
+
   // Check for saved page state
   const savedState = loadPageState();
   
@@ -1783,6 +2268,14 @@ async function loadInitialData() {
     const consoleExists = consoles.find(c => c.id === savedState.consoleId);
     if (consoleExists) {
       await selectConsole(savedState.consoleId);
+      return;
+    }
+  }
+
+  if (savedState.view === 'collection' && savedState.collectionId) {
+    const collectionExists = collections.find(c => c.id === savedState.collectionId);
+    if (collectionExists) {
+      await selectCollection(savedState.collectionId);
       return;
     }
   }
@@ -1806,8 +2299,9 @@ function renderConsoles() {
     li.innerHTML = `
       <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console">✏️</button>
       <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console">🗑️</button>
+      ${c.icon_url ? `<img class="console-icon" src="${toAbsoluteUrl(c.icon_url)}" alt="${c.name}" />` : ''}
       <span class="console-name">${c.name}</span>
-      <span class="console-count">${c.game_count} games</span>
+      <span class="console-count">${c.game_count}</span>
     `;
     li.addEventListener("click", (e) => {
       if (!e.target.classList.contains('delete-console-btn') && !e.target.classList.contains('edit-console-btn')) {
@@ -1914,6 +2408,7 @@ function editConsole(id, event) {
 // -----------------------------------------------------------
 async function selectConsole(id) {
   currentConsoleId = id;
+  currentCollectionId = null;
   activeFilter = null;
   activeGenreFilter = null;
   activeStatusFilter = null;
@@ -1924,6 +2419,7 @@ async function selectConsole(id) {
   showConsoleView();
   savePageState();
   renderConsoles();
+  renderCollections();
   renderStatusFilters();
   updateConsoleSummary();
   await loadGamesForConsole(id);
@@ -2127,6 +2623,15 @@ function showCoverFetchDialog() {
               Uses RAWG database. May have fewer but sometimes more accurate covers.
             </p>
           </div>
+          <div style="margin-top: 12px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+              <input type="radio" name="fetch-source" value="tgdb" style="margin-right: 8px;">
+              TheGamesDB
+            </label>
+            <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
+              Real box art per console. Requires a TheGamesDB API key (Options &#9881;&#65039;). Falls back automatically when DuckDuckGo is unavailable.
+            </p>
+          </div>
         </div>
         
         <div>
@@ -2213,7 +2718,11 @@ function confirmCoverStrategy(button) {
 
 async function onFetchCovers() {
   if (!currentConsoleId) return;
-  
+  if (document.getElementById("fetch-progress-container")) {
+    showToast("A fetch is already running — please wait for it to finish.", "warning");
+    return;
+  }
+
   const choice = await showCoverFetchDialog();
   if (!choice) return;
   
@@ -2258,17 +2767,26 @@ async function onFetchCovers() {
     const eventSource = new EventSource(url);
     
     let fetchComplete = false;
-    
+    let rateLimitedShown = false;
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         if (data.status === 'error') {
           eventSource.close();
           showToast(`Error: ${data.error}`, "error");
           return;
         }
-        
+
+        if (data.status === 'rate_limited') {
+          if (!rateLimitedShown) {
+            rateLimitedShown = true;
+            showToast("DuckDuckGo is rate-limiting this IP - falling back to TheGamesDB where possible", "warning");
+          }
+          return;
+        }
+
         if (data.status === 'starting') {
           return;
         }
@@ -2319,20 +2837,26 @@ async function onFetchCovers() {
 
 async function onFetchScreenshots() {
   if (!currentConsoleId) return;
-  
+  if (document.getElementById("fetch-progress-container")) {
+    showToast("A fetch is already running — please wait for it to finish.", "warning");
+    return;
+  }
+
   // Show confirmation dialog
   const choice = await showScreenshotFetchDialog();
   if (!choice) return;
   
   try {
-    const { strategy, letter } = choice;
+    const { source, strategy, letter } = choice;
     let toastMsg = strategy === "force" ? "Force fetching all screenshots" : "Smart fetching missing screenshots";
+    if (source) toastMsg += ` [${source}]`;
     if (letter) toastMsg += ` (${letter === '0' ? '0-9' : letter})`;
     toastMsg += "...";
     showToast(toastMsg, "info");
-    
+
     const params = new URLSearchParams();
     if (strategy === "force") params.append("force", "true");
+    if (source) params.append("source", source);
     if (letter) params.append("letter", letter);
     
     // Add progress UI
@@ -2362,39 +2886,50 @@ async function onFetchScreenshots() {
     const eventSource = new EventSource(url);
     
     let fetchComplete = false;
-    
+    let rateLimitedShown = false;
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         if (data.status === 'error') {
           eventSource.close();
           showToast(`Error: ${data.error}`, "error");
           return;
         }
-        
+
+        if (data.status === 'rate_limited') {
+          if (!rateLimitedShown) {
+            rateLimitedShown = true;
+            showToast("DuckDuckGo is rate-limiting this IP - falling back to TheGamesDB/RAWG where possible", "warning");
+          }
+          return;
+        }
+
         if (data.status === 'starting') {
           return;
         }
-        
+
         // Update progress UI
         const fill = document.getElementById('fetch-progress-fill');
         const text = document.getElementById('fetch-progress-text');
         if (fill) fill.style.width = `${data.progress_pct}%`;
         if (text) text.textContent = `${data.processed}/${data.total} (${data.progress_pct}%)`;
-        
+
         if (data.status === 'complete' || data.status === 'done') {
           fetchComplete = true;
           eventSource.close();
-          
+
           // Remove progress UI
           progressContainer.remove();
-          
+
+          const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
+          const summary = `Fetched screenshots: ${data.updated} updated, ${data.skipped} skipped - ${data.processed}/${data.total}`;
+
           if (data.cancelled) {
-            showToast(`Screenshot fetch cancelled - ${data.processed}/${data.total} processed (${data.updated} updated, ${data.skipped} skipped)`, "warning");
+            showToast(`Screenshot fetch cancelled - ${summary}${elapsed}`, "warning");
           } else {
-            const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
-            showToast(`Fetched screenshots: ${data.updated} updated, ${data.skipped} skipped - ${data.processed}/${data.total}${elapsed}`, "success");
+            showToast(`${summary}${elapsed}`, "success");
           }
           loadGamesForConsole(currentConsoleId);
         }
@@ -2435,6 +2970,37 @@ function showScreenshotFetchDialog() {
       <div class="modal-content">
         <h2>Fetch Screenshots Strategy</h2>
         <div style="margin: 20px 0;">
+          <div style="margin-bottom: 15px;">
+            <h3 style="margin: 0 0 10px; font-size: 1rem;">Select Source</h3>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+                <input type="radio" name="screenshot-source" value="duckduckgo" checked style="margin-right: 8px;">
+                DuckDuckGo (Recommended)
+              </label>
+              <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+                Web image search. Falls back to TheGamesDB and RAWG automatically.
+              </p>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+                <input type="radio" name="screenshot-source" value="tgdb" style="margin-right: 8px;">
+                TheGamesDB
+              </label>
+              <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+                Real in-game screenshots per console. Requires a TheGamesDB API key (Options &#9881;&#65039;).
+              </p>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+                <input type="radio" name="screenshot-source" value="rawg" style="margin-right: 8px;">
+                RAWG
+              </label>
+              <p style="margin: 5px 0; color: var(--text-muted); font-size: 0.85rem;">
+                Uses the RAWG database only.
+              </p>
+            </div>
+          </div>
+
           <div style="margin-bottom: 15px;">
             <label style="display: block; margin-bottom: 10px; font-weight: bold;">
               <input type="radio" name="fetch-strategy" value="smart" checked style="margin-right: 8px;">
@@ -2482,11 +3048,12 @@ function showScreenshotFetchDialog() {
     });
     
     document.getElementById('btn-screenshot-proceed').addEventListener('click', () => {
+      const source = modal.querySelector('input[name="screenshot-source"]:checked').value;
       const strategy = document.querySelector('input[name=fetch-strategy]:checked').value;
       const letterSelect = modal.querySelector('#fetch-letter');
       const letter = letterSelect ? letterSelect.value : '';
       modal.remove();
-      resolve({ strategy, letter });
+      resolve({ source, strategy, letter });
     });
   });
 }
@@ -2636,6 +3203,8 @@ function renderGamesForCurrentConsole() {
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
         <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game">🗑️</button>
         <button class="game-card-fetch-cover" onclick="fetchSingleGameCover(${g.id}, event)" title="Fetch cover from DuckDuckGo">🖼️</button>
+        ${g.is_completed ? '<div class="game-card-status-badge game-card-completed-badge">✅</div>' : ''}
+        ${g.is_printed ? '<div class="game-card-status-badge game-card-printed-badge">🖨️</div>' : ''}
       </div>
       <div class="game-title">${g.title}</div>
       <div class="game-meta">${g.genre || "Unknown genre"}</div>
@@ -2754,6 +3323,8 @@ function renderGlobalStatusFilteredGames(container) {
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
         <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game">🗑️</button>
         <button class="game-card-fetch-cover" onclick="fetchSingleGameCover(${g.id}, event)" title="Fetch cover from DuckDuckGo">🖼️</button>
+        ${g.is_completed ? '<div class="game-card-status-badge game-card-completed-badge">✅</div>' : ''}
+        ${g.is_printed ? '<div class="game-card-status-badge game-card-printed-badge">🖨️</div>' : ''}
       </div>
       <div class="game-title">${g.title}</div>
       <div class="game-meta">
@@ -2918,6 +3489,18 @@ function renderGameDetail(game) {
       </p>`
     : '';
 
+  // Check for notes
+  const gameNotes = currentGameStatus?.notes;
+  const hasNotes = gameNotes && gameNotes.trim().length > 0;
+  const notesPreview = hasNotes ? getNotePreview(gameNotes) : '';
+
+  const notesHtml = hasNotes
+    ? `<p class="game-detail-completed">
+        <span class="completed-indicator" data-note="${escapeHtml(gameNotes)}" onclick="openNotesCommentModal(this)" title="Click to view notes">📝</span>
+        <span class="completed-preview">${notesPreview}</span>
+      </p>`
+    : '';
+
   const content = modal.querySelector(".modal-game-content");
   if (!content) return;
 
@@ -2976,14 +3559,108 @@ function renderGameDetail(game) {
         <div class="game-detail-info">
           <h2>${game.title}</h2>
           <p class="game-detail-genre"><strong>Genre:</strong> ${game.genre || "Unknown"}</p>
-          <p class="game-detail-desc"><strong>Description:</strong> ${currentDescription}</p>
+          <div class="game-detail-desc"><strong>Description:</strong> ${renderMarkdown(currentDescription)}</div>
           ${descPaginationHtml}
           ${completedHtml}
+          ${notesHtml}
         </div>
       </div>
       ${screenshotsHtml}
+      <div class="game-detail-collections" id="game-detail-collections">
+        <h3>Collections</h3>
+        <div id="game-collection-tags" class="collection-tags"></div>
+        <div class="add-to-collection" style="margin-top:8px;">
+          <input type="text" id="collection-input" placeholder="Type collection name to add..." autocomplete="off" />
+          <div id="collection-suggestions" class="collection-suggestions" style="display:none;"></div>
+        </div>
+      </div>
     </div>
   `;
+
+  renderGameDetailCollections(game);
+}
+
+async function renderGameDetailCollections(game) {
+  const tagsContainer = document.getElementById("game-collection-tags");
+  const input = document.getElementById("collection-input");
+  if (!tagsContainer) return;
+
+  let gameCollections = [];
+  try {
+    gameCollections = await apiCall(`/games/${game.id}/collections`);
+  } catch (e) {
+    gameCollections = [];
+  }
+
+  tagsContainer.innerHTML = "";
+  if (gameCollections.length > 0) {
+    gameCollections.forEach((c) => {
+      const tag = document.createElement("span");
+      tag.className = "collection-tag";
+      tag.innerHTML = `${c.collection_name} <span class="collection-tag-remove" onclick="toggleGameCollection(${c.collection_id}, ${game.id}, false)">×</span>`;
+      tagsContainer.appendChild(tag);
+    });
+  } else {
+    tagsContainer.innerHTML = '<span class="no-collections">Not in any collection</span>';
+  }
+
+  if (input) {
+    input.value = "";
+    input.oninput = function () {
+      const val = this.value.trim().toLowerCase();
+      const suggestions = document.getElementById("collection-suggestions");
+      if (!val || val.length < 1) {
+        suggestions.style.display = "none";
+        return;
+      }
+      const matches = collections.filter((c) =>
+        c.name.toLowerCase().includes(val)
+      );
+      if (matches.length === 0) {
+        suggestions.innerHTML = `<div class="collection-suggestion" onclick="createAndAddCollection('${this.value.trim()}', ${game.id})">+ Create "${this.value.trim()}"</div>`;
+        suggestions.style.display = "block";
+        return;
+      }
+      suggestions.innerHTML = matches
+        .map(
+          (c) =>
+            `<div class="collection-suggestion" onclick="toggleGameCollection(${c.id}, ${game.id}, true); document.getElementById('collection-input').value = ''; document.getElementById('collection-suggestions').style.display = 'none';">${c.name} (${c.game_count})</div>`
+        )
+        .join("");
+      suggestions.style.display = "block";
+    };
+
+    input.onblur = function () {
+      setTimeout(() => {
+        document.getElementById("collection-suggestions").style.display = "none";
+      }, 200);
+    };
+
+    input.onfocus = function () {
+      if (this.value.trim()) {
+        this.oninput();
+      }
+    };
+  }
+}
+
+async function createAndAddCollection(name, gameId) {
+  try {
+    const collection = await apiCall("/collections", {
+      method: "POST",
+      body: JSON.stringify({ name, description: "" }),
+    });
+    collections.push(collection);
+    renderCollections();
+    const ok = await addGameToCollection(collection.id, gameId);
+    if (ok) {
+      showToast(`Created and added to '${name}'`, "success");
+      await loadCollections();
+      renderGameDetailCollections(currentGameDetail);
+    }
+  } catch (e) {
+    // Error already shown
+  }
 }
 
 // -----------------------------------------------------------
@@ -3018,6 +3695,20 @@ function escapeHtml(text) {
     .replace(/'/g, '&#039;');
 }
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = escapeHtml(text);
+  // Bold: **text**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic: *text* (but not inside **)
+  html = html.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
+  // Paragraphs: double newlines
+  html = html.split(/\n{2,}/).map(p => '<p>' + p.trim() + '</p>').join('');
+  // Single newlines inside paragraphs
+  html = html.replace(/([^>])\n([^<])/g, '$1<br>$2');
+  return html;
+}
+
 function getNotePreview(note) {
   if (!note) return '';
   const words = note.trim().split(/\s+/);
@@ -3032,8 +3723,15 @@ function getNotePreview(note) {
 function openCompletedCommentModal(element) {
   const note = element.getAttribute('data-note');
   const content = $("#completed-comment-content");
-  content.innerHTML = `<div>${note}</div>`;
+  content.innerHTML = renderMarkdown(note);
   toggleModal("#modal-completed-comment", true);
+}
+
+function openNotesCommentModal(element) {
+  const note = element.getAttribute('data-note');
+  const content = $("#notes-comment-content");
+  content.innerHTML = renderMarkdown(note);
+  toggleModal("#modal-notes-comment", true);
 }
 
 async function navigateToPrevGame() {
@@ -3126,9 +3824,12 @@ async function fetchSingleGameScreenshots(gameId, event) {
   
   try {
     showToast("Fetching screenshots for this game...", "info");
-    
+
+    // Read default source from Options modal
+    const source = ($("#default-screenshot-source") || {}).value || "duckduckgo";
+
     const result = await apiCall(
-      `/games/${gameId}/fetch-screenshots`,
+      `/games/${gameId}/fetch-screenshots?source=${encodeURIComponent(source)}`,
       { method: "POST" }
     );
     
@@ -3162,25 +3863,29 @@ async function fetchSingleGameCover(gameId, event) {
   if (event) {
     event.stopPropagation();
   }
-  
+
   try {
-    showToast("Fetching cover from DuckDuckGo...", "info");
-    
+    showToast("Fetching cover...", "info");
+
+    // Read default source from Options modal
+    const source = ($("#default-cover-source") || {}).value || "auto";
+
     const result = await apiCall(
-      `/games/${gameId}/fetch-cover`,
+      `/games/${gameId}/fetch-cover?source=${encodeURIComponent(source)}`,
       { method: "POST" }
     );
-    
+
     if (result.status === "ok") {
-      showToast(`Cover updated for "${result.title}"`, "success");
-      
+      const via = result.source ? ` (${result.source})` : "";
+      showToast(`Cover updated for "${result.title}"${via}`, "success");
+
       // Update the current game detail if modal is open
       if (currentGameDetail && currentGameDetail.id === gameId) {
         const updatedGame = await apiCall(`/games/${gameId}`);
         currentGameDetail = updatedGame;
         renderGameDetail(updatedGame);
       }
-      
+
       // Refresh games list
       if (currentConsoleId) {
         await loadGamesForConsole(currentConsoleId);
@@ -3189,7 +3894,7 @@ async function fetchSingleGameCover(gameId, event) {
       showToast(result.detail || "Failed to fetch cover", "error");
     }
   } catch (e) {
-    showToast("Error fetching cover", "error");
+    showToast(e.message || "Error fetching cover", "error");
   }
 }
 
@@ -3327,14 +4032,190 @@ async function onSaveTheme() {
   localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
 
   applyTheme(theme);
+
+  // Save default fetch sources
+  const coverSource = $("#default-cover-source").value;
+  const screenshotSource = $("#default-screenshot-source").value;
+  try {
+    await apiCall("/settings/default-source", {
+      method: "PUT",
+      body: JSON.stringify({ cover_source: coverSource, screenshot_source: screenshotSource }),
+    });
+  } catch (e) {
+    // non-critical — continue
+  }
+
   toggleModal("#modal-theme", false);
   showToast("Theme saved!", "success");
+}
+
+let consoleCatalogCache = null;
+
+async function populateConsoleCatalog() {
+  const list = document.getElementById("console-catalog-list");
+  if (!list) return;
+  try {
+    if (!consoleCatalogCache) {
+      consoleCatalogCache = await apiCall("/consoles/catalog");
+    }
+    list.innerHTML = consoleCatalogCache
+      .map((c) => `<option value="${c.name.replace(/"/g, "&quot;")}"></option>`)
+      .join("");
+  } catch (e) {
+    // catalog optional - leave datalist empty
+  }
+}
+
+async function refreshApiKeyStatus() {
+  const statusEl = $("#apikey-status");
+  const rawgInput = $("#apikey-rawg");
+  const tgdbInput = $("#apikey-tgdb");
+  if (!statusEl) return;
+  try {
+    const status = await apiCall("/settings/apikeys");
+    const parts = [];
+    parts.push(`RAWG: ${status.rawg_configured ? "configured" : "not set"}`);
+    parts.push(`TheGamesDB: ${status.tgdb_configured ? "configured" : "not set"}`);
+    statusEl.textContent = parts.join("  |  ");
+    if (rawgInput) rawgInput.value = status.rawg_configured ? "••••••••" : "";
+    if (tgdbInput) tgdbInput.value = status.tgdb_configured ? "••••••••" : "";
+  } catch (e) {
+    statusEl.textContent = "";
+  }
+}
+
+function setupGenreSuggestions() {
+  const input = $("#edit-game-genre");
+  if (!input) return;
+
+  // Create dropdown in document.body to avoid overflow clipping by .modal-content
+  const dropdown = document.createElement("div");
+  dropdown.id = "genre-suggestions";
+  dropdown.className = "genre-suggestions";
+  document.body.appendChild(dropdown);
+
+  let allGenres = [];
+  let activeIdx = -1;
+  let cachePromise = null;
+  let currentMatches = [];
+
+  async function loadGenres() {
+    if (allGenres.length) return allGenres;
+    if (!cachePromise) {
+      cachePromise = apiCall("/genres").catch(() => []);
+    }
+    allGenres = await cachePromise;
+    return allGenres;
+  }
+
+  function positionDropdown() {
+    const r = input.getBoundingClientRect();
+    dropdown.style.position = "fixed";
+    dropdown.style.top = r.bottom + 2 + "px";
+    dropdown.style.left = r.left + "px";
+    dropdown.style.width = r.width + "px";
+  }
+
+  function render(matches) {
+    currentMatches = matches;
+    dropdown.innerHTML = "";
+    if (!matches.length) { dropdown.style.display = "none"; return; }
+    matches.forEach((g, i) => {
+      const div = document.createElement("div");
+      div.textContent = g;
+      if (i === activeIdx) div.className = "genre-suggestion-item active";
+      else div.className = "genre-suggestion-item";
+      div.addEventListener("mouseenter", () => { activeIdx = i; render(matches); });
+      div.addEventListener("mousedown", (e) => { e.preventDefault(); pick(g); });
+      dropdown.appendChild(div);
+    });
+    positionDropdown();
+    dropdown.style.display = "block";
+  }
+
+  function pick(val) {
+    const raw = input.value;
+    const parts = raw.split(",").map(s => s.trim());
+    parts[parts.length - 1] = val;
+    input.value = parts.join(", ") + ", ";
+    dropdown.style.display = "none";
+    activeIdx = -1;
+    input.focus();
+  }
+
+  input.addEventListener("input", async () => {
+    activeIdx = -1;
+    const raw = input.value;
+    const parts = raw.split(",").map(s => s.trim());
+    const needle = (parts[parts.length - 1] || "").toLowerCase();
+    if (!needle) { dropdown.style.display = "none"; return; }
+
+    const all = await loadGenres();
+    const matches = all.filter(g => g.toLowerCase().includes(needle)).slice(0, 8);
+    render(matches);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    const items = dropdown.children;
+    if (!items.length || dropdown.style.display === "none") return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, items.length - 1);
+      Array.from(items).forEach((d, i) => d.className = i === activeIdx ? "genre-suggestion-item active" : "genre-suggestion-item");
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      Array.from(items).forEach((d, i) => d.className = i === activeIdx ? "genre-suggestion-item active" : "genre-suggestion-item");
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      pick(items[activeIdx].textContent);
+    } else if (e.key === "Escape") {
+      dropdown.style.display = "none";
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    setTimeout(() => { dropdown.style.display = "none"; }, 200);
+  });
+}
+
+async function onSaveApiKeys() {
+  const statusEl = $("#apikey-status");
+  const updates = [];
+
+  const rawgKey = $("#apikey-rawg") ? $("#apikey-rawg").value.trim() : "";
+  const tgdbKey = $("#apikey-tgdb") ? $("#apikey-tgdb").value.trim() : "";
+
+  if (rawgKey) updates.push(["rawg", rawgKey]);
+  if (tgdbKey) updates.push(["tgdb", tgdbKey]);
+
+  if (!updates.length) {
+    showToast("No new keys entered", "info");
+    return;
+  }
+
+  try {
+    setLoading(true);
+    for (const [provider, key] of updates) {
+      await apiCall(`/settings/apikeys/${provider}`, {
+        method: "PUT",
+        body: JSON.stringify({ key }),
+      });
+      $("#" + (provider === "rawg" ? "apikey-rawg" : "apikey-tgdb")).value = "";
+    }
+    showToast("API key(s) saved", "success");
+  } catch (e) {
+    showToast(`Failed to save key(s): ${e.message}`, "error");
+  } finally {
+    setLoading(false);
+  }
+  if (statusEl) await refreshApiKeyStatus();
 }
 
 async function populateThemeModal() {
   const currentHeaderSection = $("#theme-current-header");
   const currentHeaderImg = $("#theme-current-header-img");
-  
+
   // Check server state instead of localStorage
   try {
     const res = await fetch(`${API}/theme/header`);
@@ -3370,6 +4251,17 @@ async function populateThemeModal() {
   // Also clear the file input
   const fileInput = $("#theme-header-upload");
   if (fileInput) fileInput.value = "";
+
+  // Load default fetch sources
+  try {
+    const ds = await apiCall("/settings/default-source");
+    const coverSel = $("#default-cover-source");
+    const ssSel = $("#default-screenshot-source");
+    if (coverSel && ds.cover_source) coverSel.value = ds.cover_source;
+    if (ssSel && ds.screenshot_source) ssSel.value = ds.screenshot_source;
+  } catch (e) {
+    // non-critical
+  }
 }
 
 async function onRemoveThemeHeader() {

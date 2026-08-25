@@ -39,3 +39,6 @@ theme_images/
 *.bak
 *.backup
 *_backup*
+
+# Screenshots
+img-content/

@@ -15,48 +15,41 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+import threading
 
-# --- RAWG PLATFORM ALIASES ---
-RAWG_PLATFORM_ALIASES = {
-    15: ["ps2", "playstation 2", "sony playstation 2"],
-    16: ["ps3", "playstation 3", "sony playstation 3"],
-    18: ["ps4", "playstation 4", "sony playstation 4"],
-    187: ["ps5", "playstation 5", "sony playstation 5"],
+# Serializes bulk fetch operations so only one runs at a time
+FETCH_LOCK = threading.Lock()
 
-    14: ["xbox", "original xbox", "microsoft xbox"],
-    17: ["xbox 360", "x360"],
-    1: ["xbox one"],
-    186: ["xbox series x", "xbox series s", "series x"],
+# --- Console platform mappings live in console_catalog.py ---
 
-    13: ["gamecube", "nintendo gamecube", "ngc"],
-    11: ["wii", "nintendo wii"],
-    10: ["switch", "nintendo switch", "nsw"],
-    9:  ["nds", "nintendo ds", "ds"],
-    8:  ["3ds", "nintendo 3ds", "cia"],
-    4:  ["pc", "windows", "steam"],
-}
 
 def get_platform_id(console_name: str):
-    name = console_name.lower().strip()
-    for pid, aliases in RAWG_PLATFORM_ALIASES.items():
-        if name in aliases:
-            return pid
+    """Resolve a console name to its RAWG platform id via the canonical catalog."""
+    import console_catalog
+    entry = console_catalog.find_by_name(console_name)
+    if entry:
+        return entry.rawg_id
     return None
 
+
 def get_platform_id_for_console(console_id: int) -> Optional[int]:
-    """Get RAWG platform ID for a console by looking up the console name"""
+    """Get RAWG platform ID for a console by slug (fallback: name lookup)."""
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT name FROM consoles WHERE id = ?", (console_id,))
+        cur.execute("SELECT name, slug FROM consoles WHERE id = ?", (console_id,))
         result = cur.fetchone()
         conn.close()
-        
+
         if not result:
             return None
-            
-        console_name = result[0]
-        return get_platform_id(console_name)
+
+        import console_catalog
+        if result["slug"]:
+            entry = console_catalog.get_by_slug(result["slug"])
+            if entry:
+                return entry.rawg_id
+        return get_platform_id(result["name"])
     except Exception as e:
         logger.error(f"Failed to get platform ID for console {console_id}: {e}")
         return None
@@ -74,12 +67,14 @@ logger = logging.getLogger(__name__)
 # Paths
 # -------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = "/srv/dev-disk-by-uuid-2856cdb9-5991-47dc-886b-1be20f8c2993/ArkVault/zoological society"
 DB_PATH = os.path.join(BASE_DIR, "db", "game_vault.db")
-COVERS_DIR = os.path.join(BASE_DIR, "covers")
-SCREENSHOTS_DIR = os.path.join(BASE_DIR, "screenshots")
-METADATA_DIR = os.path.join(BASE_DIR, "metadata")
-HEADERS_DIR = os.path.join(BASE_DIR, "headers")
+COVERS_DIR = os.path.join(DATA_DIR, "covers")
+SCREENSHOTS_DIR = os.path.join(DATA_DIR, "screenshots")
+METADATA_DIR = os.path.join(DATA_DIR, "metadata")
+HEADERS_DIR = os.path.join(DATA_DIR, "headers")
 THEME_DIR = os.path.join(BASE_DIR, "theme_images")
+ICONS_DIR = os.path.join(BASE_DIR, "console icons")
 
 os.makedirs(COVERS_DIR, exist_ok=True)
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
@@ -88,13 +83,75 @@ os.makedirs(HEADERS_DIR, exist_ok=True)
 os.makedirs(THEME_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# RAWG API configuration
-# Get your free API key at: https://rawg.io/apidocs
-# Leave empty to use DuckDuckGo only (no RAWG)
+# -------------------------------------------------------------------
+# API providers configuration
+# Keys are resolved in order: settings table (managed via web UI)
+# -> environment variable -> .env file in project root.
+# -------------------------------------------------------------------
 RAWG_BASE = "https://api.rawg.io/api"
-RAWG_API_KEY = os.environ.get("RAWG_API_KEY", "")
+TGDB_BASE = "https://api.thegamesdb.net/v1"
 RAWG_TIMEOUT = 15
 WIKIPEDIA_TIMEOUT = 10
+TGDB_TIMEOUT = 15
+
+
+def _read_env_key(name: str) -> str:
+    val = os.environ.get(name, "")
+    if val:
+        return val.strip()
+    _env_path = os.path.join(BASE_DIR, ".env")
+    if os.path.isfile(_env_path):
+        try:
+            with open(_env_path) as _f:
+                for _line in _f:
+                    _line = _line.strip()
+                    if _line.startswith(f"{name}="):
+                        return _line.split("=", 1)[1].strip().strip("\"'")
+        except Exception:
+            pass
+    return ""
+
+
+def get_setting(key: str, default: str = "") -> str:
+    """Read a setting from the DB settings table, falling back to env/.env."""
+    try:
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row and row["value"]:
+            return str(row["value"])
+    except Exception:
+        pass
+    env_val = _read_env_key(key.upper())
+    return env_val or default
+
+
+def set_setting(key: str, value: str):
+    conn = get_conn()
+    try:
+        conn.execute(
+            """
+            INSERT INTO settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            """,
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_setting(key: str):
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM settings WHERE key = ?;", (key,))
+        conn.commit()
+    finally:
+        conn.close()
 
 # Wikipedia API User-Agent to avoid 403 errors
 WIKIPEDIA_HEADERS = {
@@ -123,18 +180,89 @@ def is_fetch_cancelled() -> bool:
 
 
 # -------------------------------------------------------------------
+# Console icon auto-matching
+# -------------------------------------------------------------------
+
+def sanitize_for_match(text: str) -> str:
+    """Lowercase, remove all non-alphanumeric characters."""
+    return "".join(c for c in text.lower() if c.isalnum())
+
+def match_console_icon(console_name: str) -> Optional[str]:
+    """
+    Find the best matching icon for a console using scored matching:
+
+    1. Exact match (sanitized names equal)                   → score 30
+    2. Console name is substring of icon name                → score 20
+       (icon was named with the full console name)
+    3. Icon name is substring of console name                → score 10
+       (icon has a shorter/abbreviated name, e.g. 'psp.png'
+        matching 'Sony PSP' since 'psp' is in 'sonypsp')
+
+    Ties broken by shortest filename (most specific).
+    Returns URL path like '/icons/nes.png' or None.
+    """
+    if not os.path.isdir(ICONS_DIR):
+        return None
+
+    supported = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+    clean_name = sanitize_for_match(console_name)
+
+    best_file = None
+    best_score = -1
+
+    for fname in os.listdir(ICONS_DIR):
+        name, ext = os.path.splitext(fname)
+        if ext.lower() not in supported:
+            continue
+        clean_icon = sanitize_for_match(name)
+
+        if clean_name == clean_icon:
+            score = 30
+        elif clean_name in clean_icon:
+            score = 20
+        elif clean_icon in clean_name:
+            score = 10
+        else:
+            continue
+
+        if score > best_score:
+            best_score = score
+            best_file = fname
+        elif score == best_score:
+            # For exact/substring matches (20-30): shorter = more specific
+            # For icon-in-console matches (10): longer = more specific
+            if score >= 20:
+                if len(fname) < len(best_file or ""):
+                    best_file = fname
+            else:
+                if len(fname) > len(best_file or ""):
+                    best_file = fname
+
+    if best_file:
+        return f"/icons/{best_file}"
+    return None
+
+# -------------------------------------------------------------------
 # Pydantic Models
 # -------------------------------------------------------------------
 class ConsoleBase(BaseModel):
     name: str
     path: Optional[str] = None  # Optional - can create console without path
+    slug: Optional[str] = None  # Canonical catalog identity (optional on input)
 
 class ConsoleResponse(ConsoleBase):
     id: int
     game_count: int = 0
+    icon_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class ApiKeyRequest(BaseModel):
+    key: str
+
+class ConsolePairRequest(BaseModel):
+    slug: str
 
 class ScreenshotResponse(BaseModel):
     id: int
@@ -151,6 +279,8 @@ class GameResponse(BaseModel):
     description: Optional[str] = None
     cover_url: Optional[str] = None
     screenshots: List[ScreenshotResponse] = []
+    is_completed: bool = False
+    is_printed: bool = False
 
     class Config:
         from_attributes = True
@@ -192,6 +322,8 @@ class GameStatusUpdate(BaseModel):
     completed_date_note: Optional[str] = None
     is_dropped: Optional[bool] = None
     is_on_hold: Optional[bool] = None
+    notes: Optional[str] = None
+    is_printed: Optional[bool] = None
 
 class GameStatusResponse(BaseModel):
     game_id: int
@@ -202,6 +334,8 @@ class GameStatusResponse(BaseModel):
     completed_date_note: Optional[str] = None
     is_dropped: bool = False
     is_on_hold: bool = False
+    notes: Optional[str] = None
+    is_printed: bool = False
 
     class Config:
         from_attributes = True
@@ -222,6 +356,8 @@ class SearchResultGame(BaseModel):
     genre: Optional[str] = None
     cover_url: Optional[str] = None
     console_name: str
+    is_completed: bool = False
+    is_printed: bool = False
 
     class Config:
         from_attributes = True
@@ -252,9 +388,85 @@ try:
     app.mount("/screenshots", StaticFiles(directory=SCREENSHOTS_DIR), name="screenshots")
     app.mount("/headers", StaticFiles(directory=HEADERS_DIR), name="headers")
     app.mount("/theme_images", StaticFiles(directory=THEME_DIR), name="theme_images")
+    app.mount("/icons", StaticFiles(directory=ICONS_DIR), name="icons")
     logger.info("Static file serving configured successfully")
 except Exception as e:
     logger.error(f"Failed to mount static files: {e}")
+
+# -------------------------------------------------------------------
+# API: Settings (API keys) & console catalog
+# -------------------------------------------------------------------
+
+def _mask_key(key: str) -> str:
+    if not key:
+        return ""
+    if len(key) <= 4:
+        return "*" * len(key)
+    return "*" * (len(key) - 4) + key[-4:]
+
+@app.get("/api/settings/apikeys")
+def get_api_keys():
+    """Return masked API key status for UI display"""
+    rawg = get_setting("rawg_api_key")
+    tgdb = get_setting("tgdb_api_key")
+    return {
+        "rawg": {"configured": bool(rawg.strip()), "masked": _mask_key(rawg)},
+        "tgdb": {"configured": bool(tgdb.strip()), "masked": _mask_key(tgdb)},
+    }
+
+@app.put("/api/settings/apikeys/{provider}")
+def set_api_key(provider: str, body: ApiKeyRequest):
+    provider = provider.lower()
+    if provider not in ("rawg", "tgdb"):
+        raise HTTPException(status_code=400, detail="Unknown provider")
+    key = body.key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="Key cannot be empty")
+    set_setting(f"{provider}_api_key", key)
+    logger.info(f"API key updated for {provider}")
+    return {"status": "ok", "provider": provider, "masked": _mask_key(key)}
+
+@app.delete("/api/settings/apikeys/{provider}")
+def remove_api_key(provider: str):
+    provider = provider.lower()
+    if provider not in ("rawg", "tgdb"):
+        raise HTTPException(status_code=400, detail="Unknown provider")
+    delete_setting(f"{provider}_api_key")
+    logger.info(f"API key removed for {provider}")
+    return {"status": "ok", "provider": provider}
+
+class DefaultSourceRequest(BaseModel):
+    cover_source: Optional[str] = None
+    screenshot_source: Optional[str] = None
+
+@app.get("/api/settings/default-source")
+def get_default_source():
+    """Return the default fetch sources for single-game operations"""
+    return {
+        "cover_source": get_setting("default_cover_source", "auto"),
+        "screenshot_source": get_setting("default_screenshot_source", "auto"),
+    }
+
+@app.put("/api/settings/default-source")
+def set_default_source(body: DefaultSourceRequest):
+    """Set default fetch sources for single-game operations"""
+    valid = ("auto", "duckduckgo", "tgdb", "rawg")
+    if body.cover_source is not None:
+        if body.cover_source not in valid:
+            raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join(valid)}")
+        set_setting("default_cover_source", body.cover_source)
+    if body.screenshot_source is not None:
+        if body.screenshot_source not in valid:
+            raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join(valid)}")
+        set_setting("default_screenshot_source", body.screenshot_source)
+    return {"status": "ok"}
+
+@app.get("/api/consoles/catalog")
+def get_console_catalog():
+    """Full canonical console catalog for the add-console picker"""
+    import console_catalog
+    return [e.to_dict() for e in console_catalog.all_entries()]
+
 
 # -------------------------------------------------------------------
 # DB helpers
@@ -265,7 +477,20 @@ def get_conn():
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
+
+def _exec_write(cur, sql, params=(), retries: int = 3):
+    """Execute a write statement with retry on 'database is locked'."""
+    for attempt in range(retries):
+        try:
+            cur.execute(sql, params)
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < retries - 1:
+                time.sleep(1)
+                continue
+            raise
 
 def init_db():
     conn = get_conn()
@@ -324,10 +549,21 @@ def init_db():
             completed_date_note TEXT,
             is_dropped INTEGER DEFAULT 0,
             is_on_hold INTEGER DEFAULT 0,
+            notes TEXT,
+            is_printed INTEGER DEFAULT 0,
             FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
         );
         """
     )
+
+    # --- Migration: add notes and is_printed to game_status if missing ---
+    gs_cols = [r[1] for r in cur.execute("PRAGMA table_info(game_status)").fetchall()]
+    if "notes" not in gs_cols:
+        cur.execute("ALTER TABLE game_status ADD COLUMN notes TEXT")
+        logger.info("Migration: added game_status.notes column")
+    if "is_printed" not in gs_cols:
+        cur.execute("ALTER TABLE game_status ADD COLUMN is_printed INTEGER DEFAULT 0")
+        logger.info("Migration: added game_status.is_printed column")
 
     cur.execute(
         """
@@ -339,6 +575,74 @@ def init_db():
         );
         """
     )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS collections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS collection_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            collection_id INTEGER NOT NULL,
+            game_id INTEGER NOT NULL,
+            FOREIGN KEY(collection_id) REFERENCES collections(id) ON DELETE CASCADE,
+            FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE,
+            UNIQUE(collection_id, game_id)
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        """
+    )
+
+    # --- Seed API keys from .env if DB is empty or env has a different value ---
+    for env_name, db_key in [("RAWG_API_KEY", "rawg_api_key"), ("TGDB_API_KEY", "tgdb_api_key")]:
+        env_val = _read_env_key(env_name)
+        if env_val:
+            row = cur.execute("SELECT value FROM settings WHERE key = ?", (db_key,)).fetchone()
+            if not row or row["value"] != env_val:
+                cur.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+                    (db_key, env_val),
+                )
+                logger.info(f"Seeded {db_key} from environment/.env")
+
+    # --- Migration: consoles.slug column + pairing with canonical catalog ---
+    existing_cols = [r[1] for r in cur.execute("PRAGMA table_info(consoles)").fetchall()]
+    if "slug" not in existing_cols:
+        cur.execute("ALTER TABLE consoles ADD COLUMN slug TEXT")
+        logger.info("Migration: added consoles.slug column")
+
+    try:
+        import console_catalog
+        for row in cur.execute("SELECT id, name, slug FROM consoles").fetchall():
+            if row["slug"] and console_catalog.get_by_slug(row["slug"]):
+                continue
+            entry = console_catalog.find_by_name(row["name"])
+            if entry:
+                cur.execute(
+                    "UPDATE consoles SET slug = ? WHERE id = ?;", (entry.slug, row["id"])
+                )
+                logger.info(f"Paired console '{row['name']}' -> {entry.slug}")
+            else:
+                logger.warning(f"No catalog match for console '{row['name']}' - leaving unpaired")
+    except Exception as me:
+        logger.warning(f"Console catalog pairing skipped: {me}")
 
     conn.commit()
     conn.close()
@@ -551,28 +855,38 @@ def save_metadata_json(game_id: int, data: Optional[dict]) -> Optional[str]:
 
 def is_rawg_configured() -> bool:
     """Check if RAWG API key is configured"""
-    return bool(RAWG_API_KEY.strip())
+    return bool(get_setting("rawg_api_key").strip())
 
-def fetch_rawg_game(title: str, console_id: Optional[int] = None) -> Optional[dict]:
-    """Search for a game on RAWG with platform filtering"""
-    if not is_rawg_configured():
+def fetch_rawg_game(title: str, console_id: Optional[int] = None,
+                    strict_platform: bool = False) -> Optional[dict]:
+    """Search for a game on RAWG with platform filtering.
+
+    strict_platform=True (used for cover art) refuses unfiltered results:
+    when the console has no RAWG platform mapping, returns None instead of
+    risking a wrong-platform game.
+    """
+    rawg_key = get_setting("rawg_api_key")
+    if not rawg_key.strip():
         logger.debug("RAWG API key not configured, skipping RAWG")
         return None
-    
+
     try:
         url = f"{RAWG_BASE}/games"
         params = {
             "search": title,
             "page_size": 5,
-            "key": RAWG_API_KEY,
+            "key": rawg_key,
         }
-        
+
         platform_id = None
         if console_id:
             platform_id = get_platform_id_for_console(console_id)
             if platform_id:
                 params["platforms"] = platform_id
-        
+            elif strict_platform:
+                logger.debug(f"No RAWG platform mapping for console {console_id}, skipping")
+                return None
+
         res = requests.get(url, params=params, timeout=RAWG_TIMEOUT)
         res.raise_for_status()
         data = res.json()
@@ -584,7 +898,7 @@ def fetch_rawg_game(title: str, console_id: Optional[int] = None) -> Optional[di
         # If we filtered by platform, return the first result
         if platform_id:
             return data["results"][0]
-        
+
         # If no platform filter, try to find best match by platform relevance
         return data["results"][0]
     except Exception as e:
@@ -597,7 +911,7 @@ def fetch_rawg_screenshots(rawg_id: int, limit: int = 5) -> List[dict]:
         url = f"{RAWG_BASE}/games/{rawg_id}/screenshots"
         params = {
             "page_size": limit,
-            "key": RAWG_API_KEY,
+            "key": get_setting("rawg_api_key"),
         }
         res = requests.get(url, params=params, timeout=RAWG_TIMEOUT)
         res.raise_for_status()
@@ -611,183 +925,401 @@ def fetch_rawg_screenshots(rawg_id: int, limit: int = 5) -> List[dict]:
 # DuckDuckGo Image Search helpers
 # -------------------------------------------------------------------
 
+class DDGRateLimited(Exception):
+    """Raised when DuckDuckGo throttles/blocks us - callers should back off
+    or fall back to another provider instead of hammering."""
+    pass
+
+
+def _ddgs_images(query: str, **kwargs) -> list:
+    """Single entry point for DDGS image searches.
+
+    Uses the only backend supported by ddgs>=9 ('duckduckgo'), detects
+    rate limiting and raises DDGRateLimited so callers fail fast instead
+    of firing retry storms that extend the block.
+    """
+    from ddgs import DDGS
+    from ddgs.exceptions import RatelimitException
+    try:
+        return list(DDGS().images(query, backend="duckduckgo", **kwargs))
+    except RatelimitException as e:
+        logger.warning(f"[DUCKDUCKGO] Rate limited by DuckDuckGo: {e}")
+        raise DDGRateLimited(str(e)) from e
+
+
 def fetch_duckduckgo_screenshots(title: str, console_name: str, limit: int = 5) -> List[str]:
     """Fetch landscape screenshots from DuckDuckGo for any console"""
     logger.info(f"[DUCKDUCKGO] Starting screenshot search for: {title} ({console_name})")
     import time
-    
-    # Try different backends
-    backends = ["api", "html"]
-    
-    for backend in backends:
+
+    query = f"{sanitize_query(title)} {sanitize_query(console_name)} screenshots"
+    logger.info(f"[DUCKDUCKGO] Query: {query}")
+
+    results = None
+    try:
+        results = _ddgs_images(query, layout="Wide", max_results=10)
+        logger.info(f"[DUCKDUCKGO] Got {len(results) if results else 0} raw results")
+    except DDGRateLimited:
+        raise
+    except Exception as e:
+        logger.warning(f"[DUCKDUCKGO] Search failed: {e}")
+        # Retry once without layout filter
         try:
-            from ddgs import DDGS
-            ddgs = DDGS()
-            
-            query = f"{sanitize_query(title)} {sanitize_query(console_name)} screenshots"
-            logger.info(f"[DUCKDUCKGO] Query: {query}, backend: {backend}")
-            
-            results = None
-            try:
-                results = list(ddgs.images(query, layout="Wide", max_results=10, backend=backend))
-                logger.info(f"[DUCKDUCKGO] Got {len(results) if results else 0} raw results with {backend}")
-            except Exception as e:
-                logger.warning(f"[DUCKDUCKGO] {backend} failed: {e}")
-                # Try without layout filter
-                try:
-                    results = list(ddgs.images(query, max_results=10, backend=backend))
-                    logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
-                except Exception as e2:
-                    logger.warning(f"[DUCKDUCKGO] {backend} retry also failed: {e2}")
-                    continue
-            
-            if not results:
-                logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
-                continue
-            
-            large_urls = []
-            small_urls = []
-            
-            for i, result in enumerate(results):
-                logger.info(f"[DUCKDUCKGO] Result {i}: {result}")
-                img_url = result.get("image") or result.get("thumbnail")
-                if not img_url:
-                    logger.info(f"[DUCKDUCKGO] Result {i} has no image URL")
-                    continue
-                
-                try:
-                    logger.info(f"[DUCKDUCKGO] Downloading: {img_url}")
-                    time.sleep(0.3)
-                    response = requests.get(img_url, timeout=10, headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    })
-                    if response.status_code != 200:
-                        logger.warning(f"[DUCKDUCKGO] HTTP {response.status_code} for {img_url}")
-                        continue
-                    
-                    img = Image.open(BytesIO(response.content))
-                    width, height = img.size
-                    logger.info(f"[DUCKDUCKGO] Image size: {width}x{height}")
-                    
-                    if width <= height:
-                        logger.info(f"[DUCKDUCKGO] Not landscape: {width}x{height}")
-                        continue
-                    
-                    aspect_ratio = width / height
-                    if aspect_ratio < 1.3 or aspect_ratio > 2.5:
-                        logger.info(f"[DUCKDUCKGO] Aspect ratio not suitable: {aspect_ratio:.2f} ({width}x{height})")
-                        continue
-                    
-                    is_large = width >= 640 and height >= 480 and width <= 1920
-                    is_small = width >= 320 and height >= 240 and width <= 1920
-                    
-                    if not is_large and not is_small:
-                        logger.info(f"[DUCKDUCKGO] Size too small: {width}x{height}")
-                        continue
-                    
-                    if is_large:
-                        large_urls.append(img_url)
-                        logger.info(f"[DUCKDUCKGO] Valid LARGE screenshot: {width}x{height} (aspect: {aspect_ratio:.2f})")
-                    else:
-                        small_urls.append(img_url)
-                        logger.info(f"[DUCKDUCKGO] Valid SMALL screenshot: {width}x{height} (aspect: {aspect_ratio:.2f})")
-                    
-                    if len(large_urls) >= limit:
-                        break
-                except Exception as e:
-                    logger.error(f"[DUCKDUCKGO] Failed to verify screenshot: {e}")
-                    continue
-            
-            valid_urls = large_urls[:limit]
-            if len(valid_urls) < limit:
-                needed = limit - len(valid_urls)
-                valid_urls.extend(small_urls[:needed])
-            
-            if valid_urls:
-                logger.info(f"[DUCKDUCKGO] Returning {len(valid_urls)} valid URLs (large: {len(large_urls)}, small: {len(small_urls)})")
-                return valid_urls[:limit]
-                
-        except Exception as e:
-            logger.warning(f"[DUCKDUCKGO] Backend {backend} failed: {e}")
+            results = _ddgs_images(query, max_results=10)
+            logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
+        except DDGRateLimited:
+            raise
+        except Exception as e2:
+            logger.warning(f"[DUCKDUCKGO] Retry also failed: {e2}")
+            return []
+
+    if not results:
+        logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
+        return []
+
+    large_urls = []
+    small_urls = []
+
+    for i, result in enumerate(results):
+        img_url = result.get("image") or result.get("thumbnail")
+        if not img_url:
             continue
-    
-    logger.error(f"[DUCKDUCKGO] All backends failed for '{title}'")
+
+        try:
+            time.sleep(0.3)
+            response = requests.get(img_url, timeout=10, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            if response.status_code != 200:
+                continue
+
+            img = Image.open(BytesIO(response.content))
+            width, height = img.size
+            logger.info(f"[DUCKDUCKGO] Result {i}: {width}x{height}")
+
+            if width <= height:
+                continue
+
+            aspect_ratio = width / height
+            if aspect_ratio < 1.3 or aspect_ratio > 2.5:
+                continue
+
+            is_large = width >= 640 and height >= 480 and width <= 1920
+            is_small = width >= 320 and height >= 240 and width <= 1920
+
+            if not is_large and not is_small:
+                continue
+
+            if is_large:
+                large_urls.append(img_url)
+            else:
+                small_urls.append(img_url)
+
+            if len(large_urls) >= limit:
+                break
+        except Exception as e:
+            logger.error(f"[DUCKDUCKGO] Failed to verify screenshot: {e}")
+            continue
+
+    valid_urls = large_urls[:limit]
+    if len(valid_urls) < limit:
+        needed = limit - len(valid_urls)
+        valid_urls.extend(small_urls[:needed])
+
+    if valid_urls:
+        logger.info(f"[DUCKDUCKGO] Returning {len(valid_urls)} valid URLs (large: {len(large_urls)}, small: {len(small_urls)})")
+        return valid_urls[:limit]
+
+    logger.error(f"[DUCKDUCKGO] No valid screenshots found for '{title}'")
     return []
 
 def fetch_duckduckgo_cover(title: str, console_name: str) -> Optional[str]:
     """Fetch portrait box cover from DuckDuckGo"""
     logger.info(f"[DUCKDUCKGO] Starting cover search for: {title} ({console_name})")
     import time
-    
-    # Try different backends
-    backends = ["api", "html"]
-    
-    for backend in backends:
+
+    query = f"{sanitize_query(title)} {sanitize_query(console_name)} box cover"
+    logger.info(f"[DUCKDUCKGO] Query: {query}")
+
+    results = None
+    try:
+        results = _ddgs_images(query, layout="Tall", max_results=10)
+        logger.info(f"[DUCKDUCKGO] Got {len(results) if results else 0} raw results")
+    except DDGRateLimited:
+        raise
+    except Exception as e:
+        logger.warning(f"[DUCKDUCKGO] Search failed: {e}")
+        # Retry once without layout filter
         try:
-            from ddgs import DDGS
-            ddgs = DDGS()
-            
-            query = f"{sanitize_query(title)} {sanitize_query(console_name)} box cover"
-            logger.info(f"[DUCKDUCKGO] Query: {query}, backend: {backend}")
-            
-            results = None
-            try:
-                results = list(ddgs.images(query, layout="Tall", max_results=10, backend=backend))
-                logger.info(f"[DUCKDUCKGO] Got {len(results) if results else 0} raw results with {backend}")
-            except Exception as e:
-                logger.warning(f"[DUCKDUCKGO] {backend} failed: {e}")
-                # Try without layout filter
-                try:
-                    results = list(ddgs.images(query, max_results=10, backend=backend))
-                    logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
-                except Exception as e2:
-                    logger.warning(f"[DUCKDUCKGO] {backend} retry also failed: {e2}")
-                    continue
-            
-            if not results:
-                logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
+            results = _ddgs_images(query, max_results=10)
+            logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
+        except DDGRateLimited:
+            raise
+        except Exception as e2:
+            logger.warning(f"[DUCKDUCKGO] Retry also failed: {e2}")
+            return None
+
+    if not results:
+        logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
+        return None
+
+    for i, result in enumerate(results):
+        img_url = result.get("image") or result.get("thumbnail")
+        if not img_url:
+            continue
+
+        try:
+            logger.info(f"[DUCKDUCKGO] Downloading: {img_url}")
+            # Add delay to avoid rate limiting
+            time.sleep(0.3)
+            response = requests.get(img_url, timeout=10, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            if response.status_code != 200:
+                logger.warning(f"[DUCKDUCKGO] HTTP {response.status_code} for {img_url}")
                 continue
-            
-            for i, result in enumerate(results):
-                logger.info(f"[DUCKDUCKGO] Result {i}: {result}")
-                img_url = result.get("image") or result.get("thumbnail")
-                if not img_url:
-                    logger.info(f"[DUCKDUCKGO] Result {i} has no image URL")
-                    continue
-                
-                try:
-                    logger.info(f"[DUCKDUCKGO] Downloading: {img_url}")
-                    # Add delay to avoid rate limiting
-                    time.sleep(0.3)
-                    response = requests.get(img_url, timeout=10, headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                    })
-                    if response.status_code != 200:
-                        logger.warning(f"[DUCKDUCKGO] HTTP {response.status_code} for {img_url}")
-                        continue
-                    
-                    img = Image.open(BytesIO(response.content))
-                    width, height = img.size
-                    logger.info(f"[DUCKDUCKGO] Image size: {width}x{height}")
-                    
-                    if height > width:
-                        logger.info(f"[DUCKDUCKGO] Valid portrait cover: {width}x{height}")
-                        return img_url
-                    else:
-                        logger.info(f"[DUCKDUCKGO] Not portrait: {width}x{height}")
-                except Exception as e:
-                    logger.error(f"[DUCKDUCKGO] Failed to verify cover: {e}")
-                    continue
-            
-            logger.warning(f"[DUCKDUCKGO] No valid portrait cover found with {backend}")
-            continue
-                    
+
+            img = Image.open(BytesIO(response.content))
+            width, height = img.size
+            logger.info(f"[DUCKDUCKGO] Result {i}: {width}x{height}")
+
+            if height > width:
+                logger.info(f"[DUCKDUCKGO] Valid portrait cover: {width}x{height}")
+                return img_url
         except Exception as e:
-            logger.warning(f"[DUCKDUCKGO] Backend {backend} failed: {e}")
+            logger.error(f"[DUCKDUCKGO] Failed to verify cover: {e}")
             continue
-    
-    logger.error(f"[DUCKDUCKGO] All backends failed for '{title}'")
+
+    logger.error(f"[DUCKDUCKGO] No valid portrait cover found for '{title}'")
     return None
+
+# -------------------------------------------------------------------
+# TheGamesDB helpers
+# -------------------------------------------------------------------
+
+def _tgdb_platform_id(console_name: str) -> Optional[int]:
+    import console_catalog
+    entry = console_catalog.find_by_name(console_name)
+    if entry:
+        return entry.tgdb_id
+    return None
+
+
+def _tgdb_platform_id_for_console(console_id: int) -> Optional[int]:
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT name, slug FROM consoles WHERE id = ?", (console_id,))
+        result = cur.fetchone()
+        conn.close()
+        if not result:
+            return None
+        import console_catalog
+        if result["slug"]:
+            entry = console_catalog.get_by_slug(result["slug"])
+            if entry:
+                return entry.tgdb_id
+        return _tgdb_platform_id(result["name"])
+    except Exception as e:
+        logger.error(f"Failed to get TGDB platform ID for console {console_id}: {e}")
+        return None
+
+
+def is_tgdb_configured() -> bool:
+    return bool(get_setting("tgdb_api_key").strip())
+
+
+_tgdb_last_call = 0.0
+_TGDB_MIN_INTERVAL = 1.0  # seconds between TGDB API requests
+
+
+def _tgdb_search_games(title: str, platform_id: Optional[int]):
+    """Search TheGamesDB; returns (games, include) or (None, None).
+
+    Platform filtering uses the documented `filter[platform]` param and
+    boxart is requested via `include=boxart` (returned top-level under
+    payload["include"]["boxart"]).
+    """
+    global _tgdb_last_call
+    elapsed = time.time() - _tgdb_last_call
+    if elapsed < _TGDB_MIN_INTERVAL:
+        time.sleep(_TGDB_MIN_INTERVAL - elapsed)
+
+    api_key = get_setting("tgdb_api_key")
+    if not api_key:
+        return None, None
+    params = {
+        "apikey": api_key,
+        "name": title,
+        "page_size": 5,
+        "include": "boxart",
+    }
+    if platform_id:
+        params["filter[platform]"] = str(platform_id)
+    res = requests.get(f"{TGDB_BASE}/Games/ByGameName", params=params,
+                       timeout=TGDB_TIMEOUT)
+    _tgdb_last_call = time.time()
+    res.raise_for_status()
+    payload = res.json()
+    status = payload.get("status")
+    if payload.get("code") not in (200, None) or (
+        status and str(status).lower() != "success"
+    ):
+        raise RuntimeError(f"TGDB error: code={payload.get('code')} status={status}")
+    data = payload.get("data") or {}
+    include = payload.get("include") or {}
+    return data.get("games") or [], include
+
+
+def _tgdb_image_url(base_url, img) -> str:
+    if isinstance(base_url, dict):
+        base = base_url.get("original") or base_url.get("1x") or ""
+        for v in base_url.values():
+            if v:
+                base = base or v
+                break
+    else:
+        base = base_url or ""
+    return f"{base}{img.get('filename', '')}"
+
+
+def _parse_resolution(resolution) -> tuple:
+    """'640x480' -> (640, 480); falls back to (0, 0)."""
+    try:
+        w, h = str(resolution).lower().split("x")
+        return int(w), int(h)
+    except Exception:
+        return 0, 0
+
+
+def fetch_tgdb_cover(title: str, console_id: int, console_name: str = "") -> Optional[str]:
+    """Fetch a portrait front box art URL from TheGamesDB."""
+    if not is_tgdb_configured():
+        logger.debug("TheGamesDB API key not configured, skipping TGDB")
+        return None
+
+    platform_id = _tgdb_platform_id_for_console(console_id) if console_id else \
+        (_tgdb_platform_id(console_name) if console_name else None)
+    if console_id and not platform_id:
+        logger.debug(f"No TGDB platform mapping for console {console_id}, skipping")
+        return None
+
+    try:
+        games, include = _tgdb_search_games(title, platform_id)
+        if not games:
+            logger.info(f"[TGDB] No results for '{title}'")
+            return None
+
+        boxart = (include.get("boxart") or {})
+        base_url = boxart.get("base_url") or {}
+        art_by_game = boxart.get("data") or {}
+
+        best_url, best_area = None, 0
+        fallback_url = None
+        for game in games:
+            gid = str(game.get("id"))
+            images = art_by_game.get(gid) or []
+            fronts = [im for im in images
+                      if im.get("type") == "boxart" and im.get("side") == "front"]
+            for im in fronts:
+                url = _tgdb_image_url(base_url, im)
+                if not url:
+                    continue
+                w, h = _parse_resolution(im.get("resolution"))
+                if w and h and h > w:
+                    # Prefer true portrait box art, largest area wins
+                    if h * w > best_area:
+                        best_area = h * w
+                        best_url = url
+                elif fallback_url is None:
+                    # Unknown-resolution or square/cropped front art still
+                    # beats having no cover at all
+                    fallback_url = url
+
+        if not best_url:
+            best_url = fallback_url
+        if best_url:
+            logger.info(f"[TGDB] Found cover for '{title}': {best_url}")
+        else:
+            logger.info(f"[TGDB] No portrait front boxart for '{title}'")
+        return best_url
+    except Exception as e:
+        logger.warning(f"[TGDB] Cover search failed for '{title}': {e}")
+        return None
+
+
+def _tgdb_game_screenshots(game_ids: List[int], limit: int = 5) -> List[dict]:
+    """Fetch screenshot image records for TGDB game ids via /v1/Games/Images."""
+    global _tgdb_last_call
+    elapsed = time.time() - _tgdb_last_call
+    if elapsed < _TGDB_MIN_INTERVAL:
+        time.sleep(_TGDB_MIN_INTERVAL - elapsed)
+
+    api_key = get_setting("tgdb_api_key")
+    if not api_key or not game_ids:
+        return []
+    params = {
+        "apikey": api_key,
+        "games_id": ",".join(str(g) for g in game_ids),
+        "filter[type]": "screenshot",
+    }
+    res = requests.get(f"{TGDB_BASE}/Games/Images", params=params,
+                       timeout=TGDB_TIMEOUT)
+    _tgdb_last_call = time.time()
+    res.raise_for_status()
+    payload = res.json()
+    status = payload.get("status")
+    if payload.get("code") not in (200, None) or (
+        status and str(status).lower() != "success"
+    ):
+        raise RuntimeError(f"TGDB error: code={payload.get('code')} status={status}")
+    data = payload.get("data") or {}
+    base_url = data.get("base_url") or {}
+    # images are grouped by game id: {"8185": [ {filename...}, ... ]}
+    grouped = data.get("images") or {}
+    out = []
+    for images in grouped.values():
+        for im in images:
+            url = _tgdb_image_url(base_url, im)
+            if url:
+                w, h = _parse_resolution(im.get("resolution"))
+                out.append((w * h, url))
+    out.sort(key=lambda t: t[0], reverse=True)
+    return [u for _, u in out[:limit]]
+
+
+def fetch_tgdb_screenshots(title: str, console_id: int, console_name: str = "",
+                           limit: int = 5) -> List[str]:
+    """Fetch screenshot URLs from TheGamesDB."""
+    if not is_tgdb_configured():
+        logger.debug("TheGamesDB API key not configured, skipping TGDB")
+        return []
+
+    platform_id = _tgdb_platform_id_for_console(console_id) if console_id else \
+        (_tgdb_platform_id(console_name) if console_name else None)
+    if console_id and not platform_id:
+        logger.debug(f"No TGDB platform mapping for console {console_id}, skipping")
+        return []
+
+    try:
+        games, _include = _tgdb_search_games(title, platform_id)
+        if not games:
+            logger.info(f"[TGDB] No results for '{title}'")
+            return []
+
+        # Prefer exact-title matches to avoid cross-game screenshots
+        wanted = title.strip().lower()
+        exact = [g for g in games
+                 if str(g.get("game_title", "")).strip().lower() == wanted]
+        chosen = (exact or games)[:3]
+
+        urls = _tgdb_game_screenshots([g["id"] for g in chosen], limit=limit)
+        logger.info(f"[TGDB] Returning {len(urls)} screenshots for '{title}'")
+        return urls
+    except Exception as e:
+        logger.warning(f"[TGDB] Screenshot search failed for '{title}': {e}")
+        return []
+
 
 # -------------------------------------------------------------------
 # Wikipedia API helpers
@@ -1049,7 +1581,7 @@ def get_consoles():
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT c.id, c.name, c.path, COUNT(g.id) as game_count
+            SELECT c.id, c.name, c.path, c.slug, COUNT(g.id) as game_count
             FROM consoles c
             LEFT JOIN games g ON c.id = g.console_id
             GROUP BY c.id
@@ -1057,7 +1589,13 @@ def get_consoles():
         """)
         rows = cur.fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+
+        result = []
+        for r in rows:
+            item = dict(r)
+            item["icon_url"] = match_console_icon(item["name"])
+            result.append(item)
+        return result
     except Exception as e:
         logger.error(f"Failed to get consoles: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve consoles")
@@ -1086,11 +1624,24 @@ def add_console(console: ConsoleBase):
         conn = get_conn()
         cur = conn.cursor()
         now = datetime.utcnow().isoformat()
-        
+
+        # Resolve canonical slug: explicit slug wins, else auto-pair by name
+        import console_catalog as _cc
+        slug = None
+        if console.slug and console.slug.strip():
+            slug = console.slug.strip()
+            if not _cc.get_by_slug(slug):
+                raise HTTPException(status_code=400,
+                                    detail=f"Unknown console catalog slug: {slug}")
+        else:
+            entry = _cc.find_by_name(console.name)
+            if entry:
+                slug = entry.slug
+
         try:
             cur.execute(
-                "INSERT INTO consoles (name, path, created_at) VALUES (?, ?, ?);",
-                (console.name.strip(), path, now),
+                "INSERT INTO consoles (name, path, created_at, slug) VALUES (?, ?, ?, ?);",
+                (console.name.strip(), path, now, slug),
             )
             cid = cur.lastrowid
             conn.commit()
@@ -1101,7 +1652,8 @@ def add_console(console: ConsoleBase):
         finally:
             conn.close()
         
-        return ConsoleResponse(id=cid, name=console.name, path=path, game_count=0)
+        icon_url = match_console_icon(console.name)
+        return ConsoleResponse(id=cid, name=console.name, path=path, slug=slug, game_count=0, icon_url=icon_url)
     except HTTPException:
         raise
     except Exception as e:
@@ -1114,22 +1666,22 @@ def add_console(console: ConsoleBase):
 
 @app.put("/api/consoles/{console_id}", response_model=ConsoleResponse)
 def update_console(console_id: int, console: ConsoleBase):
-    """Update a console's name"""
+    """Update a console's display name (slug / canonical identity unchanged)"""
     try:
         if not console.name or not console.name.strip():
             raise HTTPException(status_code=400, detail="Console name cannot be empty")
-        
+
         conn = get_conn()
         cur = conn.cursor()
-        
-        cur.execute("SELECT id, path FROM consoles WHERE id = ?;", (console_id,))
+
+        cur.execute("SELECT id, path, slug FROM consoles WHERE id = ?;", (console_id,))
         existing = cur.fetchone()
-        
+
         if not existing:
             conn.close()
             raise HTTPException(status_code=404, detail="Console not found")
-        
-        _, path = existing
+
+        _, path, current_slug = existing
         
         cur.execute(
             "UPDATE consoles SET name = ? WHERE id = ?;",
@@ -1143,12 +1695,47 @@ def update_console(console_id: int, console: ConsoleBase):
         conn.close()
         logger.info(f"Console updated: ID {console_id} -> {console.name}")
         
-        return ConsoleResponse(id=console_id, name=console.name, path=path, game_count=game_count)
+        icon_url = match_console_icon(console.name)
+        return ConsoleResponse(id=console_id, name=console.name, path=path,
+                               slug=current_slug, game_count=game_count, icon_url=icon_url)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to update console: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update console: {str(e)}")
+
+@app.post("/api/consoles/{console_id}/pair")
+def pair_console(console_id: int, body: ConsolePairRequest):
+    """Manually pair a console with a canonical catalog entry"""
+    import console_catalog as _cc
+    entry = _cc.get_by_slug(body.slug.strip())
+    if not entry:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown console catalog slug: {body.slug}")
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM consoles WHERE id = ?;", (console_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Console not found")
+        cur.execute("UPDATE consoles SET slug = ? WHERE id = ?;",
+                    (entry.slug, console_id))
+        conn.commit()
+        cur.execute("SELECT name, path FROM consoles WHERE id = ?;", (console_id,))
+        row = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM games WHERE console_id = ?;", (console_id,))
+        game_count = cur.fetchone()[0]
+        conn.close()
+        logger.info(f"Console {console_id} paired with catalog entry '{entry.slug}'")
+        icon_url = match_console_icon(row["name"])
+        return ConsoleResponse(id=console_id, name=row["name"], path=row["path"],
+                               slug=entry.slug, game_count=game_count, icon_url=icon_url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to pair console: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to pair console: {str(e)}")
 
 # -------------------------------------------------------------------
 # API: Scan console folder
@@ -1412,10 +1999,13 @@ def get_games(cid: int):
         
         cur.execute(
             """
-            SELECT id, folder_name, title, genre, description, cover_url
-            FROM games
-            WHERE console_id = ?
-            ORDER BY title;
+            SELECT g.id, g.folder_name, g.title, g.genre, g.description, g.cover_url,
+                   COALESCE(gs.is_completed, 0) as is_completed,
+                   COALESCE(gs.is_printed, 0) as is_printed
+            FROM games g
+            LEFT JOIN game_status gs ON g.id = gs.game_id
+            WHERE g.console_id = ?
+            ORDER BY g.title;
             """,
             (cid,),
         )
@@ -1449,6 +2039,8 @@ def get_games(cid: int):
                 description=r["description"] or "",
                 cover_url=r["cover_url"],
                 screenshots=screenshots_map.get(r["id"], []),
+                is_completed=bool(r["is_completed"]),
+                is_printed=bool(r["is_printed"]),
             ))
         return result
     except HTTPException:
@@ -1518,7 +2110,9 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
             raise HTTPException(status_code=400, detail="Invalid status")
         
         cur.execute(f"""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   COALESCE(gs.is_completed, 0) as is_completed,
+                   COALESCE(gs.is_printed, 0) as is_printed
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -1534,7 +2128,9 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
-            console_name=r["console_name"]
+            console_name=r["console_name"],
+            is_completed=bool(r["is_completed"]),
+            is_printed=bool(r["is_printed"]),
         ) for r in rows]
     except HTTPException:
         raise
@@ -1572,7 +2168,9 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
             raise HTTPException(status_code=400, detail="Invalid status")
         
         cur.execute(f"""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   COALESCE(gs.is_completed, 0) as is_completed,
+                   COALESCE(gs.is_printed, 0) as is_printed
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -1588,7 +2186,9 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
-            console_name=r["console_name"]
+            console_name=r["console_name"],
+            is_completed=bool(r["is_completed"]),
+            is_printed=bool(r["is_printed"]),
         ) for r in rows]
     except HTTPException:
         raise
@@ -1682,7 +2282,7 @@ def fetch_metadata_for_single_game(game_id: int):
         if is_rawg_configured():
             rawg_game = fetch_rawg_game(title, console_id)
             if rawg_game:
-                meta_genre = ", ".join(g["name"] for g in rawg_game.get("genres", []))
+                meta_genre = ", ".join(g["name"] for g in rawg_game.get("genres") or [])
                 logger.debug(f"Got RAWG data for {title}: genre={meta_genre}")
             else:
                 logger.debug(f"No RAWG result for {title} (may need API key)")
@@ -1698,7 +2298,7 @@ def fetch_metadata_for_single_game(game_id: int):
             wiki_para = wiki_desc
             
             if rawg_game:
-                genres = [g["name"] for g in rawg_game.get("genres", [])]
+                genres = [g["name"] for g in rawg_game.get("genres") or []]
                 released = rawg_game.get("released", "")
                 rating = rawg_game.get("rating", 0)
                 
@@ -1731,8 +2331,8 @@ def fetch_metadata_for_single_game(game_id: int):
 
         if not meta_desc and rawg_game:
             game_title = rawg_game.get("name", "")
-            genres = [g["name"] for g in rawg_game.get("genres", [])]
-            tags = [t["name"] for t in rawg_game.get("tags", [])]
+            genres = [g["name"] for g in rawg_game.get("genres") or []]
+            tags = [t["name"] for t in rawg_game.get("tags") or []]
             released = rawg_game.get("released", "")
             rating = rawg_game.get("rating", 0)
             
@@ -1799,17 +2399,16 @@ def fetch_metadata_for_single_game(game_id: int):
 @app.post("/api/games/{game_id}/fetch-screenshots")
 def fetch_screenshots_for_game(game_id: int, source: str = Query("duckduckgo")):
     """Fetch and save screenshots for a single game, overwriting existing ones.
-    source can be 'duckduckgo' or 'rawg'."""
-    conn = None
+    source can be 'duckduckgo', 'rawg' or 'tgdb'.
+    The DB connection is NOT held during network work to avoid lock contention."""
+    # 0) Read game info + clear old rows, then release the connection
+    conn = get_conn()
     try:
-        conn = get_conn()
         cur = conn.cursor()
-
-        # Get game info
         cur.execute("""
-            SELECT g.id, g.title, g.console_id, c.name as console_name 
-            FROM games g 
-            JOIN consoles c ON g.console_id = c.id 
+            SELECT g.id, g.title, g.console_id, c.name as console_name
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
             WHERE g.id = ?;
         """, (game_id,))
         row = cur.fetchone()
@@ -1820,93 +2419,110 @@ def fetch_screenshots_for_game(game_id: int, source: str = Query("duckduckgo")):
         title = row["title"]
         console_id = row["console_id"]
         console_name = row["console_name"]
-        
-        logger.info(f"[DEBUG] Single game screenshot - console: '{console_name}', source: '{source}'")
 
-        # Delete existing screenshots
-        cur.execute("DELETE FROM screenshots WHERE game_id = ?;", (gid,))
-        
-        # Delete old screenshot files
-        screenshot_dir = Path(SCREENSHOTS_DIR) / str(gid)
-        if screenshot_dir.exists():
-            for f in screenshot_dir.glob("*.jpg"):
-                f.unlink()
+        _exec_write(cur, "DELETE FROM screenshots WHERE game_id = ?;", (gid,))
+        conn.commit()
+    finally:
+        conn.close()
 
-        if source == "duckduckgo":
-            # Use DuckDuckGo with console name in query
+    logger.info(f"[DEBUG] Single game screenshot - console: '{console_name}', source: '{source}'")
+
+    # Delete old screenshot files (no DB connection needed)
+    screenshot_dir = Path(SCREENSHOTS_DIR) / str(gid)
+    if screenshot_dir.exists():
+        for f in screenshot_dir.glob("*.jpg"):
+            f.unlink()
+
+    screenshots_urls = []
+    ddg_rate_limited = False
+
+    # 1) Try DuckDuckGo first (unless TGDB or RAWG explicitly selected)
+    if source not in ("tgdb", "rawg"):
+        try:
             raw_screens = fetch_duckduckgo_screenshots(title, console_name, limit=5)
-            if not raw_screens:
-                raise HTTPException(status_code=404, detail="No DuckDuckGo screenshots found for this game")
-            
-            screenshots_urls = []
-            index = 1
-            for s_url in raw_screens:
-                img = download_image(s_url)
-                if not img:
-                    continue
-                local_s = save_screenshot(img, gid, index)
-                if local_s:
-                    screenshots_urls.append(local_s)
-                    index += 1
-            
-            if not screenshots_urls:
-                raise HTTPException(status_code=404, detail="Failed to download any screenshots")
-        else:
-            # Use RAWG for other consoles
+            if raw_screens:
+                index = 1
+                for s_url in raw_screens:
+                    img = download_image(s_url)
+                    if not img:
+                        continue
+                    local_s = save_screenshot(img, gid, index)
+                    if local_s:
+                        screenshots_urls.append(local_s)
+                        index += 1
+        except DDGRateLimited:
+            ddg_rate_limited = True
+            logger.warning(f"DuckDuckGo rate limited during screenshot search for {title}")
+        except Exception as e:
+            logger.warning(f"DuckDuckGo failed for {title}: {e}")
+
+    # 2) TheGamesDB (explicit selection or fallback from DuckDuckGo)
+    if not screenshots_urls and source in ("duckduckgo", "tgdb") and is_tgdb_configured():
+        try:
+            tgdb_urls = fetch_tgdb_screenshots(title, console_id, console_name, limit=5)
+            if tgdb_urls:
+                screenshot_dir.mkdir(parents=True, exist_ok=True)
+                index = 1
+                for s_url in tgdb_urls:
+                    img = download_image(s_url)
+                    if not img:
+                        continue
+                    local_s = save_screenshot(img, gid, index)
+                    if local_s:
+                        screenshots_urls.append(local_s)
+                        index += 1
+        except Exception as e:
+            logger.warning(f"TheGamesDB failed for {title}: {e}")
+
+    # 3) Fall back to RAWG
+    if not screenshots_urls and source in ("duckduckgo", "rawg") and is_rawg_configured():
+        try:
             rawg_game = fetch_rawg_game(title, console_id)
-            if not rawg_game:
-                raise HTTPException(status_code=404, detail="No RAWG data found for this game")
+            if rawg_game:
+                rawg_id = rawg_game.get("id")
+                if rawg_id:
+                    raw_screens = fetch_rawg_screenshots(rawg_id, limit=5)
+                    if raw_screens:
+                        screenshot_dir.mkdir(parents=True, exist_ok=True)
+                        index = 1
+                        for s in raw_screens:
+                            s_url = s.get("image")
+                            if not s_url:
+                                continue
+                            img = download_image(s_url)
+                            if not img:
+                                continue
+                            local_s = save_screenshot(img, gid, index)
+                            if local_s:
+                                screenshots_urls.append(local_s)
+                                index += 1
+        except Exception as e:
+            logger.warning(f"RAWG failed for {title}: {e}")
 
-            rawg_id = rawg_game.get("id")
-            if not rawg_id:
-                raise HTTPException(status_code=404, detail="No RAWG ID found for this game")
+    # 4) Error if all sources failed
+    if not screenshots_urls:
+        if ddg_rate_limited:
+            raise HTTPException(
+                status_code=429,
+                detail="DuckDuckGo is rate-limiting this IP and no other provider had screenshots. Try again later.",
+            )
+        raise HTTPException(status_code=404, detail="No screenshots found from any source")
 
-            # Fetch screenshots
-            raw_screens = fetch_rawg_screenshots(rawg_id, limit=5)
-            if not raw_screens:
-                raise HTTPException(status_code=404, detail="No screenshots found for this game")
-
-            # Create screenshot directory
-            screenshot_dir.mkdir(parents=True, exist_ok=True)
-
-            screenshots_urls = []
-            index = 1
-            for s in raw_screens:
-                s_url = s.get("image")
-                if not s_url:
-                    continue
-                img = download_image(s_url)
-                if not img:
-                    continue
-                local_s = save_screenshot(img, gid, index)
-                if local_s:
-                    screenshots_urls.append(local_s)
-                    index += 1
-
-        # Insert into DB
+    # 5) Brief write window: reopen connection just for the inserts
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
         for url in screenshots_urls:
-            cur.execute(
+            _exec_write(cur,
                 "INSERT INTO screenshots (game_id, url) VALUES (?, ?);",
                 (gid, url),
             )
-
         conn.commit()
-        
-        logger.info(f"Fetched {len(screenshots_urls)} screenshots for {title}")
-        return {"status": "ok", "updated": len(screenshots_urls), "title": title}
-
-    except HTTPException:
-        if conn:
-            conn.close()
-        raise
-    except Exception as e:
-        logger.error(f"Failed to fetch screenshots for game {game_id}: {e}")
-        if conn:
-            conn.close()
-        raise HTTPException(status_code=500, detail="Failed to fetch screenshots")
     finally:
-        if conn:
-            conn.close()
+        conn.close()
+
+    logger.info(f"Fetched {len(screenshots_urls)} screenshots for {title}")
+    return {"status": "ok", "updated": len(screenshots_urls), "title": title}
 
 @app.post("/api/consoles/{cid}/fetch-metadata")
 def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str = Query(None), batch_commit: int = Query(50)):
@@ -1989,7 +2605,7 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
             if is_rawg_configured():
                 rawg_game = fetch_rawg_game(title, cid)
                 if rawg_game:
-                    meta_genre = ", ".join(g["name"] for g in rawg_game.get("genres", []))
+                    meta_genre = ", ".join(g["name"] for g in rawg_game.get("genres") or [])
                     logger.debug(f"Got RAWG data for {title}: genre={meta_genre}")
                 else:
                     logger.debug(f"No RAWG result for {title}")
@@ -2005,7 +2621,7 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
                 wiki_para = wiki_desc
                 
                 if rawg_game:
-                    genres = [g["name"] for g in rawg_game.get("genres", [])]
+                    genres = [g["name"] for g in rawg_game.get("genres") or []]
                     released = rawg_game.get("released", "")
                     rating = rawg_game.get("rating", 0)
                     
@@ -2038,8 +2654,8 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
 
             if not meta_desc and rawg_game:
                 game_title = rawg_game.get("name", "")
-                genres = [g["name"] for g in rawg_game.get("genres", [])]
-                tags = [t["name"] for t in rawg_game.get("tags", [])]
+                genres = [g["name"] for g in rawg_game.get("genres") or []]
+                tags = [t["name"] for t in rawg_game.get("tags") or []]
                 released = rawg_game.get("released", "")
                 rating = rawg_game.get("rating", 0)
                 
@@ -2122,10 +2738,12 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
 
 @app.post("/api/consoles/{cid}/fetch-covers")
 def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str = Query("rawg"), letter: str = Query(None), batch_commit: int = Query(50)):
-    """Fetch covers with console-specific folder structure. source can be 'rawg' or 'duckduckgo'.
+    """Fetch covers with console-specific folder structure. source can be 'rawg', 'duckduckgo' or 'tgdb'.
     letter can be A-Z or 0-9 to filter by starting letter.
     batch_commit is the number of games to process before committing (default 50)."""
     logger.info(f"[DEBUG] fetch_covers called with cid={cid}, force={force}, source={source}, letter={letter}, batch_commit={batch_commit}")
+    if not FETCH_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A fetch is already running. Please wait for it to finish.")
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2203,17 +2821,32 @@ def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str =
             cover_path = Path(COVERS_DIR) / cover_filename
             cover_path.parent.mkdir(parents=True, exist_ok=True)
             
-            # Fetch cover based on source
+            # Fetch cover based on source (with automatic fallback to TGDB
+            # when DuckDuckGo is rate limited or finds nothing)
             cover_url = None
+            used_source = None
             try:
                 if source == "duckduckgo":
-                    cover_url = fetch_duckduckgo_cover(title, console_name)
+                    try:
+                        cover_url = fetch_duckduckgo_cover(title, console_name)
+                        if cover_url:
+                            used_source = "duckduckgo"
+                            logger.info(f"Found DuckDuckGo cover for {title}")
+                    except DDGRateLimited:
+                        logger.warning(f"DuckDuckGo rate limited, falling back for {title}")
+                    if not cover_url and is_tgdb_configured():
+                        cover_url = fetch_tgdb_cover(title, cid, console_name)
+                        if cover_url:
+                            used_source = "tgdb"
+                elif source == "tgdb":
+                    cover_url = fetch_tgdb_cover(title, cid, console_name)
                     if cover_url:
-                        logger.info(f"Found DuckDuckGo cover for {title}")
+                        used_source = "tgdb"
                 else:
-                    rawg_game = fetch_rawg_game(title)
+                    rawg_game = fetch_rawg_game(title, console_id=cid, strict_platform=True)
                     if rawg_game and rawg_game.get("background_image"):
                         cover_url = rawg_game["background_image"]
+                        used_source = "rawg"
                         logger.info(f"Found RAWG cover for {title}")
             except Exception as e:
                 logger.warning(f"Cover search failed for {title}: {e}")
@@ -2231,11 +2864,11 @@ def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str =
                         # Update database with local path
                         local_meta = save_metadata_json(gid, {
                             "source": "downloaded",
-                            "source_type": source,
+                            "source_type": used_source or source,
                             "original_url": cover_url,
                         })
-                        
-                        cur.execute(
+
+                        _exec_write(cur,
                             """
                             UPDATE games
                             SET cover_url = ?, metadata_json = ?
@@ -2288,12 +2921,18 @@ def fetch_covers_for_console(cid: int, force: bool = Query(False), source: str =
     except Exception as e:
         logger.error(f"Failed to fetch covers: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch covers")
+    finally:
+        FETCH_LOCK.release()
 
 
 def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: str, batch_commit: int):
     """Generator that yields SSE progress updates for cover fetching."""
     import asyncio
-    
+
+    if not FETCH_LOCK.acquire(blocking=False):
+        yield f"data: {json.dumps({'status': 'busy', 'error': 'A fetch is already running. Please wait for it to finish.'})}\n\n"
+        return
+
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2366,37 +3005,56 @@ def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: s
             cover_path.parent.mkdir(parents=True, exist_ok=True)
             
             cover_url = None
+            used_source = None
+            rate_limited_hit = False
             try:
                 if source == "duckduckgo":
-                    cover_url = fetch_duckduckgo_cover(title, console_name)
+                    try:
+                        cover_url = fetch_duckduckgo_cover(title, console_name)
+                        if cover_url:
+                            used_source = "duckduckgo"
+                    except DDGRateLimited:
+                        rate_limited_hit = True
+                    if not cover_url and is_tgdb_configured():
+                        cover_url = fetch_tgdb_cover(title, cid, console_name)
+                        if cover_url:
+                            used_source = "tgdb"
+                elif source == "tgdb":
+                    cover_url = fetch_tgdb_cover(title, cid, console_name)
+                    if cover_url:
+                        used_source = "tgdb"
                 else:
-                    rawg_game = fetch_rawg_game(title)
+                    rawg_game = fetch_rawg_game(title, console_id=cid, strict_platform=True)
                     if rawg_game and rawg_game.get("background_image"):
                         cover_url = rawg_game["background_image"]
+                        used_source = "rawg"
             except Exception as e:
                 logger.warning(f"Cover search failed for {title}: {e}")
-            
+
+            if rate_limited_hit:
+                yield f"data: {json.dumps({'status': 'rate_limited', 'provider': 'duckduckgo', 'current': title})}\n\n"
+
             if cover_url:
                 try:
                     response = requests.get(cover_url, timeout=15)
                     if response.status_code == 200:
                         with open(cover_path, "wb") as f:
                             f.write(response.content)
-                        
+
                         local_meta = save_metadata_json(gid, {
                             "source": "downloaded",
-                            "source_type": source,
+                            "source_type": used_source or source,
                             "original_url": cover_url,
                         })
-                        
-                        cur.execute(
+
+                        _exec_write(cur,
                             "UPDATE games SET cover_url = ?, metadata_json = ? WHERE id = ?;",
                             (f"/covers/{cover_filename}", local_meta, gid),
                         )
                         updated += 1
                 except Exception as e:
                     logger.warning(f"Cover download failed for {title}: {e}")
-            
+
             if not cover_url:
                 skipped += 1
             
@@ -2419,10 +3077,12 @@ def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: s
         progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
         
         yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'elapsed': round(end - start, 2)})}\n\n"
-        
+
     except Exception as e:
         logger.error(f"Stream error: {e}")
         yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+    finally:
+        FETCH_LOCK.release()
 
 
 @app.get("/api/consoles/{cid}/fetch-covers/stream")
@@ -2473,9 +3133,11 @@ def sanitize_query(title: str) -> str:
 @app.post("/api/consoles/{cid}/fetch-screenshots")
 def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: str = Query("duckduckgo"), letter: str = Query(None), batch_commit: int = Query(50)):
     """Fetch and save screenshots for games. Use force=true to re-fetch all, false for missing only.
-    source can be 'duckduckgo' or 'rawg'.
+    source can be 'duckduckgo', 'rawg' or 'tgdb'.
     letter can be A-Z or 0-9 to filter by starting letter.
     batch_commit is the number of games to process before committing (default 50)."""
+    if not FETCH_LOCK.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="A fetch is already running. Please wait for it to finish.")
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2484,21 +3146,20 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
         console = cur.fetchone()
         if not console:
             raise HTTPException(status_code=404, detail="Console not found")
-        
+
         console_name = console["name"]
         logger.info(f"[DEBUG] Console name: '{console_name}', source: '{source}', letter: '{letter}'")
-        
+
         # If force=true, delete existing screenshots first
         if force:
-            # Build delete query with letter filter if provided
             if letter:
                 if letter == "0":
-                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
+                    _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
                 else:
-                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid,), (f"{letter}%",))
+                    _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid, f"{letter}%"))
                 logger.info(f"Cleared existing screenshots for console {cid} letter {letter}")
             else:
-                cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
+                _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
                 logger.info(f"Cleared existing screenshots for console {cid}")
 
         # Build query with optional letter filter
@@ -2514,17 +3175,14 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
         
         # Games with MISSING screenshots (smart fetching) or all games (force)
         if force:
-            query = f"""
-            SELECT id, title
-            FROM games
-            WHERE console_id = ?
-            """
+            query = "SELECT id, title FROM games WHERE console_id = ?"
+            exec_params = [cid]
             if letter:
                 if letter == "0":
                     query += " AND title GLOB '[0-9]*'"
                 else:
                     query += " AND title LIKE ?"
-                    params.append(f"{letter}%")
+                    exec_params.append(f"{letter}%")
             query += " ORDER BY title;"
         else:
             query = f"""
@@ -2536,8 +3194,9 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
             HAVING COUNT(s.id) = 0
             ORDER BY g.title;
             """
-        
-        cur.execute(query, params)
+            exec_params = params
+
+        cur.execute(query, exec_params)
         rows = cur.fetchall()
 
         if not rows:
@@ -2559,22 +3218,14 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
             title = r["title"]
 
             if source == "duckduckgo":
-                raw_screens = fetch_duckduckgo_screenshots(title, console_name, limit=5)
-                if not raw_screens:
-                    skipped += 1
-                    processed += 1
-                    continue
-                
-                screenshots_urls = []
-                index = 1
-                for s_url in raw_screens:
-                    img = download_image(s_url)
-                    if not img:
-                        continue
-                    local_s = save_screenshot(img, gid, index)
-                    if local_s:
-                        screenshots_urls.append(local_s)
-                        index += 1
+                try:
+                    raw_screens = fetch_duckduckgo_screenshots(title, console_name, limit=5)
+                except DDGRateLimited:
+                    raw_screens = []
+                    logger.warning(f"DuckDuckGo rate limited during screenshots for {title}")
+            elif source == "tgdb":
+                tgdb_urls = fetch_tgdb_screenshots(title, cid, console_name, limit=5)
+                raw_screens = list(tgdb_urls)
             else:
                 rawg_game = fetch_rawg_game(title, cid)
                 if not rawg_game:
@@ -2589,40 +3240,39 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
                     continue
 
                 # Fetch screenshots
-                raw_screens = fetch_rawg_screenshots(rawg_id, limit=5)
-                if not raw_screens:
-                    skipped += 1
-                    processed += 1
-                    continue
+                raw_screens = [s.get("image") for s in fetch_rawg_screenshots(rawg_id, limit=5)
+                               if s.get("image")]
 
-                screenshots_urls = []
-                index = 1
-                for s in raw_screens:
-                    s_url = s.get("image")
-                    if not s_url:
-                        continue
-                    img = download_image(s_url)
-                    if not img:
-                        continue
-                    local_s = save_screenshot(img, gid, index)
-                    if local_s:
-                        screenshots_urls.append(local_s)
-                        index += 1
+            if not raw_screens:
+                skipped += 1
+                processed += 1
+                continue
+
+            screenshots_urls = []
+            index = 1
+            for s_url in raw_screens:
+                img = download_image(s_url)
+                if not img:
+                    continue
+                local_s = save_screenshot(img, gid, index)
+                if local_s:
+                    screenshots_urls.append(local_s)
+                    index += 1
 
             # Insert screenshots into DB
             if screenshots_urls:
                 for url in screenshots_urls:
-                    cur.execute(
+                    _exec_write(cur,
                         "INSERT INTO screenshots (game_id, url) VALUES (?, ?);",
                         (gid, url),
                     )
                 updated += 1
             else:
                 skipped += 1
-            
+
             processed += 1
             commit_counter += 1
-            
+
             # Batch commit
             if commit_counter >= batch_commit:
                 conn.commit()
@@ -2631,7 +3281,7 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
 
         conn.commit()
         conn.close()
-        
+
         progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
         logger.info(f"Screenshots completed: {updated} fetched, {skipped} skipped, processed: {processed}/{total}")
         return {"status": "ok", "updated": updated, "skipped": skipped, "processed": processed, "total": total, "progress_pct": progress_pct}
@@ -2640,10 +3290,16 @@ def fetch_screenshots_for_console(cid: int, force: bool = Query(False), source: 
     except Exception as e:
         logger.error(f"Failed to fetch screenshots: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch screenshots")
+    finally:
+        FETCH_LOCK.release()
 
 
 def generate_screenshot_progress_stream(cid: int, force: bool, source: str, letter: str, batch_commit: int):
     """Generator that yields SSE progress updates for screenshot fetching."""
+    if not FETCH_LOCK.acquire(blocking=False):
+        yield f"data: {json.dumps({'status': 'busy', 'error': 'A fetch is already running. Please wait for it to finish.'})}\n\n"
+        return
+
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2659,11 +3315,11 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
         if force:
             if letter:
                 if letter == "0":
-                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
+                    _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title GLOB '[0-9]*');", (cid,))
                 else:
-                    cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid,), (f"{letter}%",))
+                    _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ? AND title LIKE ?);", (cid, f"{letter}%"))
             else:
-                cur.execute("DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
+                _exec_write(cur, "DELETE FROM screenshots WHERE game_id IN (SELECT id FROM games WHERE console_id = ?);", (cid,))
 
         base_where = "WHERE g.console_id = ?"
         params = [cid]
@@ -2677,12 +3333,13 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
 
         if force:
             query = "SELECT id, title FROM games WHERE console_id = ?"
+            exec_params = [cid]
             if letter:
                 if letter == "0":
                     query += " AND title GLOB '[0-9]*'"
                 else:
                     query += " AND title LIKE ?"
-                    params.append(f"{letter}%")
+                    exec_params.append(f"{letter}%")
             query += " ORDER BY title;"
         else:
             query = f"""
@@ -2694,8 +3351,9 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
             HAVING COUNT(s.id) = 0
             ORDER BY g.title;
             """
+            exec_params = params
 
-        cur.execute(query, params)
+        cur.execute(query, exec_params)
         rows = cur.fetchall()
 
         if not rows:
@@ -2726,17 +3384,44 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
             title = game["title"]
 
             screenshots_urls = []
-            try:
-                if source == "duckduckgo":
-                    images = search_duckduckgo_images(f"{title} {console_name} screenshot")
+            rate_limited_hit = False
+
+            # 1) DuckDuckGo first (unless TGDB or RAWG explicitly selected)
+            if source not in ("tgdb", "rawg"):
+                try:
+                    images = fetch_duckduckgo_screenshots(title, console_name, limit=5)
                     for img_url in images[:5]:
                         img = download_image(img_url)
                         if img:
                             local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
                             if local_s:
                                 screenshots_urls.append(local_s)
-                else:
-                    rawg_game = fetch_rawg_game(title)
+                except DDGRateLimited:
+                    rate_limited_hit = True
+                    logger.warning(f"DuckDuckGo rate limited during screenshots for {title}")
+                except Exception as e:
+                    logger.warning(f"DuckDuckGo failed for {title}: {e}")
+
+            # 2) TheGamesDB (explicit selection or fallback from DuckDuckGo)
+            if not screenshots_urls and source in ("duckduckgo", "tgdb") and is_tgdb_configured():
+                try:
+                    tgdb_urls = fetch_tgdb_screenshots(title, cid, console_name, limit=5)
+                    for img_url in tgdb_urls[:5]:
+                        img = download_image(img_url)
+                        if img:
+                            local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
+                            if local_s:
+                                screenshots_urls.append(local_s)
+                except Exception as e:
+                    logger.warning(f"TheGamesDB failed for {title}: {e}")
+
+            if rate_limited_hit:
+                yield f"data: {json.dumps({'status': 'rate_limited', 'provider': 'duckduckgo', 'current': title})}\n\n"
+
+            # 3) Fall back to RAWG
+            if not screenshots_urls and is_rawg_configured():
+                try:
+                    rawg_game = fetch_rawg_game(title, cid)
                     if rawg_game and rawg_game.get("short_screenshots"):
                         raw_screens = rawg_game["short_screenshots"]
                         index = 1
@@ -2751,12 +3436,12 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
                             if local_s:
                                 screenshots_urls.append(local_s)
                                 index += 1
-            except Exception as e:
-                logger.warning(f"Screenshot search failed for {title}: {e}")
+                except Exception as e:
+                    logger.warning(f"RAWG failed for {title}: {e}")
 
             if screenshots_urls:
                 for url in screenshots_urls:
-                    cur.execute(
+                    _exec_write(cur,
                         "INSERT INTO screenshots (game_id, url) VALUES (?, ?);",
                         (gid, url),
                     )
@@ -2787,6 +3472,8 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
     except Exception as e:
         logger.error(f"Stream error: {e}")
         yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+    finally:
+        FETCH_LOCK.release()
 
 
 @app.get("/api/consoles/{cid}/fetch-screenshots/stream")
@@ -2924,70 +3611,123 @@ def cover_from_url(game_id: int, data: CoverFromUrlRequest):
 # -------------------------------------------------------------------
 
 @app.post("/api/games/{game_id}/fetch-cover")
-def fetch_cover_for_game(game_id: int):
-    """Fetch a cover image from DuckDuckGo for a single game"""
-    conn = None
+def fetch_cover_for_game(game_id: int, source: str = Query("auto")):
+    """Fetch a cover for a single game. source can be 'auto' (DDG→TGDB chain), 'duckduckgo', 'tgdb', or 'rawg'.
+    The DB connection is NOT held during network work to avoid lock contention."""
+    # 0) Read game info, then release the connection immediately
+    conn = get_conn()
     try:
-        conn = get_conn()
         cur = conn.cursor()
-        
-        # Get game info with console name
         cur.execute("""
-            SELECT g.id, g.title, g.console_id, c.name as console_name 
-            FROM games g 
-            JOIN consoles c ON g.console_id = c.id 
+            SELECT g.id, g.title, g.console_id, c.name as console_name
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
             WHERE g.id = ?;
         """, (game_id,))
         row = cur.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Game not found")
-        
-        gid = row["id"]
-        title = row["title"]
-        console_name = row["console_name"]
-        
-        logger.info(f"[DUCKDUCKGO] Fetching cover for: {title} ({console_name})")
-        
-        # Fetch cover from DuckDuckGo
-        cover_url = fetch_duckduckgo_cover(title, console_name)
+    finally:
+        conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    gid = row["id"]
+    title = row["title"]
+    console_id = row["console_id"]
+    console_name = row["console_name"]
+
+    logger.info(f"[COVER] Fetching cover for: {title} ({console_name})")
+
+    cover_url = None
+    used_source = None
+    ddg_rate_limited = False
+
+    if source == "auto":
+        # 1) DuckDuckGo
+        try:
+            cover_url = fetch_duckduckgo_cover(title, console_name)
+            if cover_url:
+                used_source = "duckduckgo"
+        except DDGRateLimited:
+            ddg_rate_limited = True
+            logger.warning(f"[COVER] DuckDuckGo rate limited during search for '{title}'")
+
+        # 2) TheGamesDB fallback
         if not cover_url:
+            if is_tgdb_configured():
+                cover_url = fetch_tgdb_cover(title, console_id, console_name)
+                if cover_url:
+                    used_source = "tgdb"
+            elif ddg_rate_limited:
+                raise HTTPException(
+                    status_code=429,
+                    detail="DuckDuckGo is rate-limiting this IP and no TheGamesDB API key is configured. "
+                           "Add one under Options -> API Keys to enable automatic fallback.",
+                )
+
+        if not cover_url:
+            if ddg_rate_limited:
+                raise HTTPException(
+                    status_code=429,
+                    detail="DuckDuckGo is rate-limiting this IP and TheGamesDB had no cover for this game. Try again later.",
+                )
             raise HTTPException(status_code=404, detail="No cover found for this game")
-        
-        # Create console-specific folder structure
-        safe_title = sanitize_filename(title)
-        safe_console = console_name.lower().replace(" ", "_")
-        cover_filename = f"{safe_console}/{safe_title}.jpg"
-        cover_path = Path(COVERS_DIR) / cover_filename
-        cover_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Download and save cover
-        response = requests.get(cover_url, timeout=15)
-        if response.status_code != 200:
-            raise HTTPException(status_code=500, detail="Failed to download cover")
-        
-        with open(cover_path, "wb") as f:
-            f.write(response.content)
-        
-        # Update database
+    else:
+        # Specific source requested
+        if source == "duckduckgo":
+            try:
+                cover_url = fetch_duckduckgo_cover(title, console_name)
+                if cover_url:
+                    used_source = "duckduckgo"
+            except DDGRateLimited:
+                raise HTTPException(status_code=429, detail="DuckDuckGo is rate-limiting this IP. Try again later.")
+        elif source == "tgdb":
+            if not is_tgdb_configured():
+                raise HTTPException(status_code=400, detail="TheGamesDB API key not configured. Add one under Options -> API Keys.")
+            cover_url = fetch_tgdb_cover(title, console_id, console_name)
+            if cover_url:
+                used_source = "tgdb"
+        elif source == "rawg":
+            if not is_rawg_configured():
+                raise HTTPException(status_code=400, detail="RAWG API key not configured. Add one under Options -> API Keys.")
+            rawg_game = fetch_rawg_game(title, console_id)
+            if rawg_game and rawg_game.get("background_image"):
+                cover_url = rawg_game["background_image"]
+                used_source = "rawg"
+
+        if not cover_url:
+            raise HTTPException(status_code=404, detail=f"No cover found from {source} for this game")
+
+    # 3) Download and save cover file
+    safe_title = sanitize_filename(title)
+    safe_console = console_name.lower().replace(" ", "_")
+    cover_filename = f"{safe_console}/{safe_title}.jpg"
+    cover_path = Path(COVERS_DIR) / cover_filename
+    cover_path.parent.mkdir(parents=True, exist_ok=True)
+
+    response = requests.get(cover_url, timeout=15)
+    if response.status_code != 200:
+        raise HTTPException(status_code=500, detail="Failed to download cover")
+
+    with open(cover_path, "wb") as f:
+        f.write(response.content)
+
+    # 4) Brief write window: reopen connection just for the update
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
         now = datetime.utcnow().isoformat()
-        cur.execute(
+        _exec_write(cur,
             "UPDATE games SET cover_url = ?, updated_at = ? WHERE id = ?;",
             (f"/covers/{cover_filename}", now, gid),
         )
         conn.commit()
-        
-        logger.info(f"[DUCKDUCKGO] Cover saved for {title}: {cover_filename}")
-        return {"status": "ok", "title": title, "cover_url": f"/covers/{cover_filename}"}
-        
-    except HTTPException:
-        if conn:
-            conn.close()
-        raise
-    except Exception as e:
-        logger.error(f"Failed to fetch cover for game {game_id}: {e}")
-        if conn:
-            conn.close()
-        raise HTTPException(status_code=500, detail="Failed to fetch cover")
+    finally:
+        conn.close()
+
+    logger.info(f"[COVER] Cover saved ({used_source}) for {title}: {cover_filename}")
+    return {"status": "ok", "title": title, "source": used_source,
+            "cover_url": f"/covers/{cover_filename}"}
 
 # -------------------------------------------------------------------
 # API: Update Game Details
@@ -2999,23 +3739,35 @@ def update_game(game_id: int, data: GameUpdateRequest):
     try:
         conn = get_conn()
         cur = conn.cursor()
-        
-        # Verify game exists
+
         cur.execute("SELECT id FROM games WHERE id = ?;", (game_id,))
         if not cur.fetchone():
             conn.close()
             raise HTTPException(status_code=404, detail="Game not found")
-        
+
         title = data.title.strip()
         genre = data.genre.strip() if data.genre else ""
         description = data.description.strip() if data.description else ""
-        
+
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
-        
+
+        # Normalize genre tags against existing archive labels (case-insensitive match)
+        if genre:
+            genre_tags = [t.strip() for t in genre.split(",") if t.strip()]
+            cur.execute("SELECT DISTINCT genre FROM games WHERE genre IS NOT NULL AND genre != ''")
+            known = {}
+            for r in cur.fetchall():
+                for t in r["genre"].split(","):
+                    t = t.strip()
+                    if t:
+                        known[t.lower()] = t
+            normalized = [known.get(t.lower(), t) for t in genre_tags]
+            genre = ", ".join(normalized)
+
         now = datetime.utcnow().isoformat()
-        
-        cur.execute(
+
+        _exec_write(cur,
             """
             UPDATE games
             SET title = ?, genre = ?, description = ?, updated_at = ?
@@ -3023,10 +3775,10 @@ def update_game(game_id: int, data: GameUpdateRequest):
             """,
             (title, genre or None, description or None, now, game_id),
         )
-        
+
         conn.commit()
         conn.close()
-        
+
         logger.info(f"Game {game_id} updated: title={title}")
         return {"status": "ok"}
     except HTTPException:
@@ -3035,7 +3787,28 @@ def update_game(game_id: int, data: GameUpdateRequest):
         logger.error(f"Failed to update game: {e}")
         raise HTTPException(status_code=500, detail="Failed to update game")
 
-# -------------------------------------------------------------------
+@app.get("/api/genres")
+def get_genres():
+    """Return all unique genre labels from the archive, case-insensitive deduped, sorted."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT genre FROM games WHERE genre IS NOT NULL AND genre != ''")
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    canonical = {}
+    for row in rows:
+        for tag in row["genre"].split(","):
+            tag = tag.strip()
+            if not tag:
+                continue
+            key = tag.lower()
+            if key not in canonical:
+                canonical[key] = tag
+    return sorted(canonical.values(), key=str.lower)
+
 # -------------------------------------------------------------------
 # Delete endpoints
 # -------------------------------------------------------------------
@@ -3379,6 +4152,264 @@ def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
         raise HTTPException(status_code=500, detail="Failed to add screenshot from URL")
 
 # -------------------------------------------------------------------
+# API: Collections
+# -------------------------------------------------------------------
+
+class CollectionBase(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+class CollectionResponse(CollectionBase):
+    id: int
+    game_count: int = 0
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+class CollectionGameResponse(BaseModel):
+    id: int
+    game_id: int
+    title: str
+    genre: Optional[str] = None
+    cover_url: Optional[str] = None
+    console_name: str
+
+    class Config:
+        from_attributes = True
+
+class GameCollectionsResponse(BaseModel):
+    collection_id: int
+    collection_name: str
+
+    class Config:
+        from_attributes = True
+
+@app.get("/api/collections", response_model=List[CollectionResponse])
+def get_collections():
+    """List all collections with game counts"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT c.id, c.name, c.description, c.created_at,
+                   COUNT(cg.id) as game_count
+            FROM collections c
+            LEFT JOIN collection_games cg ON c.id = cg.collection_id
+            GROUP BY c.id
+            ORDER BY c.name;
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get collections: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve collections")
+
+@app.post("/api/collections", response_model=CollectionResponse)
+def create_collection(data: CollectionBase):
+    """Create a new collection"""
+    try:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Collection name cannot be empty")
+
+        conn = get_conn()
+        cur = conn.cursor()
+        now = datetime.utcnow().isoformat()
+
+        try:
+            cur.execute(
+                "INSERT INTO collections (name, description, created_at) VALUES (?, ?, ?);",
+                (name, data.description or "", now),
+            )
+            cid = cur.lastrowid
+            conn.commit()
+            logger.info(f"Collection created: {name}")
+        except sqlite3.IntegrityError:
+            conn.close()
+            raise HTTPException(status_code=409, detail=f"Collection '{name}' already exists")
+
+        conn.close()
+        return CollectionResponse(id=cid, name=name, description=data.description or "", game_count=0, created_at=now)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create collection: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create collection")
+
+@app.put("/api/collections/{collection_id}", response_model=CollectionResponse)
+def update_collection(collection_id: int, data: CollectionBase):
+    """Update a collection's name or description"""
+    try:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Collection name cannot be empty")
+
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM collections WHERE id = ?;", (collection_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        cur.execute(
+            "UPDATE collections SET name = ?, description = ? WHERE id = ?;",
+            (name, data.description or "", collection_id),
+        )
+        conn.commit()
+
+        cur.execute("SELECT COUNT(*) FROM collection_games WHERE collection_id = ?;", (collection_id,))
+        game_count = cur.fetchone()[0]
+        cur.execute("SELECT created_at FROM collections WHERE id = ?;", (collection_id,))
+        created_at = cur.fetchone()["created_at"]
+        conn.close()
+
+        return CollectionResponse(id=collection_id, name=name, description=data.description or "", game_count=game_count, created_at=created_at)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update collection: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update collection")
+
+@app.delete("/api/collections/{collection_id}")
+def delete_collection(collection_id: int):
+    """Delete a collection"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM collections WHERE id = ?;", (collection_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        cur.execute("DELETE FROM collections WHERE id = ?;", (collection_id,))
+        conn.commit()
+        conn.close()
+
+        return {"status": "ok", "message": "Collection deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete collection: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete collection")
+
+@app.get("/api/collections/{collection_id}/games", response_model=List[CollectionGameResponse])
+def get_collection_games(collection_id: int):
+    """Get all games in a collection"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM collections WHERE id = ?;", (collection_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        cur.execute("""
+            SELECT cg.id, cg.game_id, g.title, g.genre, g.cover_url, co.name as console_name
+            FROM collection_games cg
+            JOIN games g ON cg.game_id = g.id
+            JOIN consoles co ON g.console_id = co.id
+            WHERE cg.collection_id = ?
+            ORDER BY g.title;
+        """, (collection_id,))
+
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get collection games: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get collection games")
+
+@app.post("/api/collections/{collection_id}/games/{game_id}")
+def add_game_to_collection(collection_id: int, game_id: int):
+    """Add a game to a collection"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM collections WHERE id = ?;", (collection_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Collection not found")
+
+        cur.execute("SELECT id FROM games WHERE id = ?;", (game_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Game not found")
+
+        try:
+            cur.execute(
+                "INSERT INTO collection_games (collection_id, game_id) VALUES (?, ?);",
+                (collection_id, game_id),
+            )
+            conn.commit()
+            logger.info(f"Game {game_id} added to collection {collection_id}")
+        except sqlite3.IntegrityError:
+            conn.close()
+            raise HTTPException(status_code=409, detail="Game already in collection")
+
+        conn.close()
+        return {"status": "ok", "message": "Game added to collection"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add game to collection: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add game to collection")
+
+@app.delete("/api/collections/{collection_id}/games/{game_id}")
+def remove_game_from_collection(collection_id: int, game_id: int):
+    """Remove a game from a collection"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "DELETE FROM collection_games WHERE collection_id = ? AND game_id = ?;",
+            (collection_id, game_id),
+        )
+
+        if cur.rowcount == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Game not found in collection")
+
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "Game removed from collection"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to remove game from collection: {e}")
+        raise HTTPException(status_code=500, detail="Failed to remove game from collection")
+
+@app.get("/api/games/{game_id}/collections", response_model=List[GameCollectionsResponse])
+def get_game_collections(game_id: int):
+    """Get all collections a game belongs to"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT c.id as collection_id, c.name as collection_name
+            FROM collection_games cg
+            JOIN collections c ON cg.collection_id = c.id
+            WHERE cg.game_id = ?
+            ORDER BY c.name;
+        """, (game_id,))
+
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get game collections: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get game collections")
+
+# -------------------------------------------------------------------
 # API: Archive Stats
 # -------------------------------------------------------------------
 
@@ -3547,7 +4578,9 @@ def get_game_status(game_id: int):
             is_completed=bool(row["is_completed"]),
             completed_date_note=row["completed_date_note"],
             is_dropped=bool(row["is_dropped"]),
-            is_on_hold=bool(row["is_on_hold"])
+            is_on_hold=bool(row["is_on_hold"]),
+            notes=row["notes"],
+            is_printed=bool(row["is_printed"]),
         )
     except HTTPException:
         raise
@@ -3599,6 +4632,12 @@ def update_game_status(game_id: int, data: GameStatusUpdate):
         if data.is_on_hold is not None:
             updates.append("is_on_hold = ?")
             params.append(1 if data.is_on_hold else 0)
+        if data.notes is not None:
+            updates.append("notes = ?")
+            params.append(data.notes)
+        if data.is_printed is not None:
+            updates.append("is_printed = ?")
+            params.append(1 if data.is_printed else 0)
         
         if updates:
             params.append(game_id)
