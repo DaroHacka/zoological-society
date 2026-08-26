@@ -786,7 +786,10 @@ def download_image(url: str) -> Optional[Image.Image]:
     if not url:
         return None
     try:
-        resp = requests.get(url, timeout=RAWG_TIMEOUT)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, timeout=RAWG_TIMEOUT)
         resp.raise_for_status()
         img = Image.open(BytesIO(resp.content)).convert("RGB")
         return img
@@ -4048,18 +4051,16 @@ MAX_SCREENSHOTS_PER_GAME = 5
 @app.post("/api/games/{game_id}/upload-screenshot")
 async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
     """Upload a screenshot from disk"""
+    conn = get_conn()
     try:
-        conn = get_conn()
         cur = conn.cursor()
         
         cur.execute("SELECT id FROM games WHERE id = ?;", (game_id,))
         if not cur.fetchone():
-            conn.close()
             raise HTTPException(status_code=404, detail="Game not found")
         
         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
         count = cur.fetchone()[0]
-        conn.close()
         
         if count >= MAX_SCREENSHOTS_PER_GAME:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_SCREENSHOTS_PER_GAME} screenshots allowed per game")
@@ -4071,14 +4072,10 @@ async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
             logger.error(f"Failed to open image: {e}")
             raise HTTPException(status_code=400, detail="Invalid image file")
         
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-        index = cur.fetchone()[0] + 1
+        index = count + 1
         
         local_screenshot = save_screenshot(img, game_id, index)
         if not local_screenshot:
-            conn.close()
             raise HTTPException(status_code=500, detail="Failed to save screenshot")
         
         cur.execute(
@@ -4087,7 +4084,6 @@ async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
         )
         conn.commit()
         screenshot_id = cur.lastrowid
-        conn.close()
         
         logger.info(f"Screenshot uploaded for game {game_id}")
         return {"status": "ok", "screenshot_id": screenshot_id, "url": local_screenshot}
@@ -4096,34 +4092,31 @@ async def upload_screenshot(game_id: int, file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Failed to upload screenshot: {e}")
         raise HTTPException(status_code=500, detail="Failed to upload screenshot")
+    finally:
+        conn.close()
 
 @app.post("/api/games/{game_id}/screenshot-from-url")
 def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
     """Add a screenshot from a URL"""
+    conn = get_conn()
     try:
-        conn = get_conn()
         cur = conn.cursor()
         
         cur.execute("SELECT id FROM games WHERE id = ?;", (game_id,))
         if not cur.fetchone():
-            conn.close()
             raise HTTPException(status_code=404, detail="Game not found")
         
         cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
         count = cur.fetchone()[0]
         
         if count >= MAX_SCREENSHOTS_PER_GAME:
-            conn.close()
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_SCREENSHOTS_PER_GAME} screenshots allowed per game")
         
         url = data.url
         if not url:
-            conn.close()
             raise HTTPException(status_code=400, detail="URL is required")
         
-        cur.execute("SELECT COUNT(*) FROM screenshots WHERE game_id = ?;", (game_id,))
-        index = cur.fetchone()[0] + 1
-        conn.close()
+        index = count + 1
         
         img = download_image(url)
         if not img:
@@ -4133,15 +4126,12 @@ def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
         if not local_screenshot:
             raise HTTPException(status_code=500, detail="Failed to save screenshot")
         
-        conn = get_conn()
-        cur = conn.cursor()
         cur.execute(
             "INSERT INTO screenshots (game_id, url) VALUES (?, ?);",
             (game_id, local_screenshot),
         )
         conn.commit()
         screenshot_id = cur.lastrowid
-        conn.close()
         
         logger.info(f"Screenshot added from URL for game {game_id}: {url}")
         return {"status": "ok", "screenshot_id": screenshot_id, "url": local_screenshot}
@@ -4150,6 +4140,8 @@ def screenshot_from_url(game_id: int, data: ScreenshotFromUrlRequest):
     except Exception as e:
         logger.error(f"Failed to add screenshot from URL: {e}")
         raise HTTPException(status_code=500, detail="Failed to add screenshot from URL")
+    finally:
+        conn.close()
 
 # -------------------------------------------------------------------
 # API: Collections
