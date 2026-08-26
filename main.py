@@ -4741,8 +4741,11 @@ def get_series_games(series_id: int):
 
         cur.execute("""
             SELECT sg.id, sg.series_id, sg.game_id, sg.position, sg.title,
-                   sg.cover_url, sg.platform, sg.release_year, sg.rawg_id, sg.is_missing
+                   sg.cover_url, sg.platform, sg.release_year, sg.rawg_id, sg.is_missing,
+                   c.name as console_name
             FROM series_games sg
+            LEFT JOIN games g ON sg.game_id = g.id
+            LEFT JOIN consoles c ON g.console_id = c.id
             WHERE sg.series_id = ?
             ORDER BY sg.position;
         """, (series_id,))

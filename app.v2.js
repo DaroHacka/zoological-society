@@ -1664,7 +1664,7 @@ function renderSeriesDetail() {
       </div>
       <div class="game-title">${g.title}</div>
       <div class="game-meta">
-        ${g.platform ? `<span class="game-console-badge">${g.platform}</span>` : ''}
+        ${(g.console_name || g.platform) ? `<span class="game-console-badge">${g.console_name || g.platform}</span>` : ''}
         ${g.release_year || ''}
         <span class="series-card-actions">
           <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'up', event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
