@@ -602,6 +602,46 @@ def init_db():
 
     cur.execute(
         """
+        CREATE TABLE IF NOT EXISTS series (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            genre TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS series_games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            game_id INTEGER,
+            position INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            cover_url TEXT,
+            platform TEXT DEFAULT '',
+            release_year INTEGER,
+            rawg_id INTEGER,
+            is_missing INTEGER DEFAULT 0,
+            FOREIGN KEY(series_id) REFERENCES series(id) ON DELETE CASCADE,
+            FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS series_cache (
+            rawg_game_id INTEGER PRIMARY KEY,
+            series_data TEXT NOT NULL,
+            fetched_at TEXT NOT NULL
+        );
+        """
+    )
+
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -4177,6 +4217,54 @@ class GameCollectionsResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# --- Series Models ---
+
+class SeriesBase(BaseModel):
+    name: str
+    genre: Optional[str] = ""
+
+class SeriesResponse(SeriesBase):
+    id: int
+    game_count: int = 0
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+class SeriesGameEntry(BaseModel):
+    id: int
+    series_id: int
+    game_id: Optional[int] = None
+    position: int
+    title: str
+    cover_url: Optional[str] = None
+    platform: Optional[str] = ""
+    release_year: Optional[int] = None
+    rawg_id: Optional[int] = None
+    is_missing: bool = False
+
+    class Config:
+        from_attributes = True
+
+class SeriesAddGameRequest(BaseModel):
+    game_id: Optional[int] = None
+    title: str
+    cover_url: Optional[str] = None
+    platform: Optional[str] = ""
+    release_year: Optional[int] = None
+    rawg_id: Optional[int] = None
+    is_missing: bool = False
+
+class SeriesBulkAddRequest(BaseModel):
+    games: List[SeriesAddGameRequest]
+
+class SeriesReorderRequest(BaseModel):
+    positions: List[dict]  # [{"id": int, "position": int}, ...]
+
+class SeriesExpandResponse(BaseModel):
+    games: List[dict]
+    source_rawg_id: int
+
 @app.get("/api/collections", response_model=List[CollectionResponse])
 def get_collections():
     """List all collections with game counts"""
@@ -4400,6 +4488,383 @@ def get_game_collections(game_id: int):
     except Exception as e:
         logger.error(f"Failed to get game collections: {e}")
         raise HTTPException(status_code=500, detail="Failed to get game collections")
+
+# -------------------------------------------------------------------
+# API: Series
+# -------------------------------------------------------------------
+
+@app.get("/api/series", response_model=List[SeriesResponse])
+def get_series():
+    """List all series with game counts"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.id, s.name, s.genre, s.created_at,
+                   COUNT(sg.id) as game_count
+            FROM series s
+            LEFT JOIN series_games sg ON s.id = sg.series_id
+            GROUP BY s.id
+            ORDER BY s.name;
+        """)
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve series")
+
+@app.post("/api/series", response_model=SeriesResponse)
+def create_series(data: SeriesBase):
+    """Create a new series"""
+    try:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Series name cannot be empty")
+
+        conn = get_conn()
+        cur = conn.cursor()
+        now = datetime.utcnow().isoformat()
+
+        try:
+            cur.execute(
+                "INSERT INTO series (name, genre, created_at) VALUES (?, ?, ?);",
+                (name, data.genre or "", now),
+            )
+            sid = cur.lastrowid
+            conn.commit()
+            logger.info(f"Series created: {name}")
+        except sqlite3.IntegrityError:
+            conn.close()
+            raise HTTPException(status_code=409, detail=f"Series '{name}' already exists")
+
+        conn.close()
+        return SeriesResponse(id=sid, name=name, genre=data.genre or "", game_count=0, created_at=now)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create series")
+
+@app.put("/api/series/{series_id}", response_model=SeriesResponse)
+def update_series(series_id: int, data: SeriesBase):
+    """Update a series name or genre"""
+    try:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Series name cannot be empty")
+
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute(
+            "UPDATE series SET name = ?, genre = ? WHERE id = ?;",
+            (name, data.genre or "", series_id),
+        )
+        conn.commit()
+
+        cur.execute("SELECT COUNT(*) FROM series_games WHERE series_id = ?;", (series_id,))
+        game_count = cur.fetchone()[0]
+        cur.execute("SELECT created_at FROM series WHERE id = ?;", (series_id,))
+        created_at = cur.fetchone()["created_at"]
+        conn.close()
+
+        return SeriesResponse(id=series_id, name=name, genre=data.genre or "", game_count=game_count, created_at=created_at)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update series")
+
+@app.delete("/api/series/{series_id}")
+def delete_series(series_id: int):
+    """Delete a series and all its entries"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute("DELETE FROM series WHERE id = ?;", (series_id,))
+        conn.commit()
+        conn.close()
+
+        return {"status": "ok", "message": "Series deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete series")
+
+@app.get("/api/series/{series_id}/games", response_model=List[SeriesGameEntry])
+def get_series_games(series_id: int):
+    """Get all games in a series, ordered by position"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute("""
+            SELECT sg.id, sg.series_id, sg.game_id, sg.position, sg.title,
+                   sg.cover_url, sg.platform, sg.release_year, sg.rawg_id, sg.is_missing
+            FROM series_games sg
+            WHERE sg.series_id = ?
+            ORDER BY sg.position;
+        """, (series_id,))
+
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get series games: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get series games")
+
+@app.post("/api/series/{series_id}/games", response_model=SeriesGameEntry)
+def add_game_to_series(series_id: int, data: SeriesAddGameRequest):
+    """Add a game (archive game or missing entry) to a series"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute("SELECT COALESCE(MAX(position), 0) + 1 FROM series_games WHERE series_id = ?;", (series_id,))
+        next_pos = cur.fetchone()[0]
+
+        # If game_id is provided, verify it exists in archive
+        if data.game_id:
+            cur.execute("SELECT id, title, cover_url FROM games WHERE id = ?;", (data.game_id,))
+            game_row = cur.fetchone()
+            if not game_row:
+                conn.close()
+                raise HTTPException(status_code=404, detail="Game not found in archive")
+            # Use archive data as fallback
+            if not data.title:
+                data.title = game_row["title"]
+            if not data.cover_url:
+                data.cover_url = game_row["cover_url"]
+            is_missing = 0
+        else:
+            is_missing = 1 if data.is_missing else 0
+
+        cur.execute(
+            """INSERT INTO series_games (series_id, game_id, position, title, cover_url, platform, release_year, rawg_id, is_missing)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+            (series_id, data.game_id, next_pos, data.title, data.cover_url, data.platform or "", data.release_year, data.rawg_id, is_missing),
+        )
+        entry_id = cur.lastrowid
+        conn.commit()
+        logger.info(f"Game '{data.title}' added to series {series_id}")
+
+        conn.close()
+        return SeriesGameEntry(
+            id=entry_id, series_id=series_id, game_id=data.game_id,
+            position=next_pos, title=data.title, cover_url=data.cover_url,
+            platform=data.platform or "", release_year=data.release_year,
+            rawg_id=data.rawg_id, is_missing=bool(is_missing),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add game to series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add game to series")
+
+@app.put("/api/series/{series_id}/games/reorder")
+def reorder_series_games(series_id: int, data: SeriesReorderRequest):
+    """Reorder games in a series (batch update positions)"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        for item in data.positions:
+            cur.execute(
+                "UPDATE series_games SET position = ? WHERE id = ? AND series_id = ?;",
+                (item["position"], item["id"], series_id),
+            )
+        conn.commit()
+        conn.close()
+
+        return {"status": "ok", "message": "Series games reordered"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reorder series games: {e}")
+        raise HTTPException(status_code=500, detail="Failed to reorder series games")
+
+@app.delete("/api/series/{series_id}/games/{entry_id}")
+def remove_game_from_series(series_id: int, entry_id: int):
+    """Remove a game from a series"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "DELETE FROM series_games WHERE id = ? AND series_id = ?;",
+            (entry_id, series_id),
+        )
+
+        if cur.rowcount == 0:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Game entry not found in series")
+
+        conn.commit()
+        conn.close()
+        return {"status": "ok", "message": "Game removed from series"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to remove game from series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to remove game from series")
+
+@app.get("/api/series/expand/{game_id}")
+def expand_series_from_game(game_id: int):
+    """Fetch all games in the same series from RAWG using a game in the archive"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Get the game from archive
+        cur.execute("SELECT id, title, metadata_json FROM games WHERE id = ?;", (game_id,))
+        game_row = cur.fetchone()
+        if not game_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Game not found in archive")
+
+        # Extract rawg_id from metadata JSON file
+        rawg_id = None
+        meta_path = game_row["metadata_json"]
+        if meta_path:
+            meta_full = os.path.join(BASE_DIR, meta_path.lstrip("/"))
+            if os.path.isfile(meta_full):
+                try:
+                    with open(meta_full) as f:
+                        meta_data = json.load(f)
+                    rawg_id = meta_data.get("id")
+                except Exception:
+                    pass
+
+        if not rawg_id:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Game has no RAWG ID - fetch metadata first")
+
+        rawg_id = int(rawg_id)
+
+        # Check cache (7-day expiry)
+        cache_row = cur.execute(
+            "SELECT series_data, fetched_at FROM series_cache WHERE rawg_game_id = ?;",
+            (rawg_id,),
+        ).fetchone()
+
+        if cache_row:
+            fetched_at = datetime.fromisoformat(cache_row["fetched_at"])
+            if (datetime.utcnow() - fetched_at).days < 7:
+                cached_games = json.loads(cache_row["series_data"])
+                # Cross-reference cached results with archive
+                game_title_map = {}
+                for row in cur.execute("SELECT id, title FROM games").fetchall():
+                    game_title_map[row["title"].lower()] = row["id"]
+                for g in cached_games:
+                    archive_id = game_title_map.get(g["title"].lower())
+                    if archive_id:
+                        g["archive_game_id"] = archive_id
+                        g["in_archive"] = True
+                    else:
+                        g["in_archive"] = False
+                conn.close()
+                return {"games": cached_games, "source_rawg_id": rawg_id}
+
+        # Fetch from RAWG
+        api_key = get_setting("rawg_api_key")
+        if not api_key:
+            conn.close()
+            raise HTTPException(status_code=400, detail="RAWG API key not configured")
+
+        rawg_url = f"{RAWG_BASE}/games/{rawg_id}/game-series?key={api_key}&page_size=100"
+        resp = requests.get(rawg_url, timeout=RAWG_TIMEOUT)
+        if resp.status_code != 200:
+            conn.close()
+            raise HTTPException(status_code=502, detail=f"RAWG API error: {resp.status_code}")
+
+        rawg_data = resp.json()
+        results = rawg_data.get("results", [])
+
+        # Process results
+        series_games = []
+        for g in results:
+            # Extract release year
+            release_year = None
+            if g.get("released"):
+                try:
+                    release_year = int(g["released"][:4])
+                except (ValueError, IndexError):
+                    pass
+
+            # Extract primary platform
+            platform = ""
+            if g.get("platforms") and len(g["platforms"]) > 0:
+                platform = g["platforms"][0].get("platform", {}).get("name", "")
+
+            series_games.append({
+                "rawg_id": g.get("id"),
+                "title": g.get("name", "Unknown"),
+                "cover_url": g.get("background_image", ""),
+                "platform": platform,
+                "release_year": release_year,
+            })
+
+        # Sort by release year
+        series_games.sort(key=lambda x: x.get("release_year") or 9999)
+
+        # Cross-reference with archive: find which games already exist
+        game_title_map = {}
+        for row in cur.execute("SELECT id, title FROM games").fetchall():
+            game_title_map[row["title"].lower()] = row["id"]
+
+        for g in series_games:
+            archive_id = game_title_map.get(g["title"].lower())
+            if archive_id:
+                g["archive_game_id"] = archive_id
+                g["in_archive"] = True
+            else:
+                g["in_archive"] = False
+
+        # Cache results
+        now = datetime.utcnow().isoformat()
+        cur.execute(
+            "INSERT OR REPLACE INTO series_cache (rawg_game_id, series_data, fetched_at) VALUES (?, ?, ?);",
+            (rawg_id, json.dumps(series_games), now),
+        )
+        conn.commit()
+        conn.close()
+
+        return {"games": series_games, "source_rawg_id": rawg_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to expand series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to expand series from RAWG")
 
 # -------------------------------------------------------------------
 # API: Archive Stats
