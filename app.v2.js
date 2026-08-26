@@ -1644,12 +1644,7 @@ function renderSeriesDetail() {
     return;
   }
 
-  // Split into missing (top) and owned (bottom)
-  const missingGames = currentSeriesGames.filter(g => g.is_missing);
-  const ownedGames = currentSeriesGames.filter(g => !g.is_missing);
-
-  // Helper to create a series game card
-  function createSeriesGameCard(g, idx, total) {
+  currentSeriesGames.forEach((g, idx) => {
     const card = document.createElement("article");
     card.className = g.is_missing ? "game-card series-missing" : "game-card";
 
@@ -1671,7 +1666,7 @@ function renderSeriesDetail() {
         ${g.release_year || ''}
         <span class="series-card-actions">
           <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'up', event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
-          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
+          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === currentSeriesGames.length - 1 ? 'disabled' : ''}>▼</button>
           <button class="series-remove-btn" onclick="removeGameFromSeriesUI(${g.id}, event)" title="Remove from series">✕</button>
         </span>
       </div>
@@ -1684,26 +1679,7 @@ function renderSeriesDetail() {
       }
     });
 
-    return card;
-  }
-
-  // Render missing games first (at the top)
-  if (missingGames.length > 0) {
-    missingGames.forEach((g, idx) => {
-      container.appendChild(createSeriesGameCard(g, idx, missingGames.length));
-    });
-    // Add separator if there are both missing and owned
-    if (ownedGames.length > 0) {
-      const sep = document.createElement("div");
-      sep.className = "series-separator";
-      sep.innerHTML = `<span style="color: var(--text-muted); font-size: 0.85rem; padding: 8px 0;">— Owned games —</span>`;
-      container.appendChild(sep);
-    }
-  }
-
-  // Render owned games
-  ownedGames.forEach((g, idx) => {
-    container.appendChild(createSeriesGameCard(g, idx, ownedGames.length));
+    container.appendChild(card);
   });
 }
 
