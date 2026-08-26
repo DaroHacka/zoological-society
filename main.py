@@ -4362,6 +4362,7 @@ class SeriesGameEntry(BaseModel):
     release_year: Optional[int] = None
     rawg_id: Optional[int] = None
     is_missing: bool = False
+    console_name: Optional[str] = None
 
     class Config:
         from_attributes = True
