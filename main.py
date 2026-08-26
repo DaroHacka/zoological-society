@@ -4915,6 +4915,94 @@ def remove_game_from_series(series_id: int, entry_id: int):
         logger.error(f"Failed to remove game from series: {e}")
         raise HTTPException(status_code=500, detail="Failed to remove game from series")
 
+@app.post("/api/series/{series_id}/games/{entry_id}/add-to-archive")
+def add_missing_game_to_archive(series_id: int, entry_id: int):
+    """Add a missing game from a series to the archive.
+
+    Finds the best-matching console based on the platform string,
+    creates a new game entry, and links it to the series entry.
+    """
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Get the series game entry
+        cur.execute(
+            "SELECT id, title, platform, cover_url, release_year, rawg_id, is_missing FROM series_games WHERE id = ? AND series_id = ?;",
+            (entry_id, series_id),
+        )
+        sg = cur.fetchone()
+        if not sg:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series game entry not found")
+        if not sg["is_missing"]:
+            conn.close()
+            return {"status": "ok", "message": "Game is already in the archive"}
+
+        platform = (sg["platform"] or "").strip()
+        title = sg["title"]
+
+        # Find best matching console
+        cur.execute("SELECT id, name FROM consoles;")
+        consoles = cur.fetchall()
+        console_id = None
+
+        # Score-based matching: exact > substring > partial
+        best_score = 0
+        for c in consoles:
+            cname = c["name"].lower()
+            plow = platform.lower()
+            if not plow:
+                continue
+            # Exact match
+            if plow == cname:
+                console_id = c["id"]
+                best_score = 30
+                break
+            # Platform is substring of console name
+            if plow in cname and best_score < 20:
+                console_id = c["id"]
+                best_score = 20
+            # Console name is substring of platform
+            elif cname in plow and best_score < 10:
+                console_id = c["id"]
+                best_score = 10
+
+        if console_id is None:
+            conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"No matching console found for platform '{platform}'. Please add a console with that name first.",
+            )
+
+        # Create the game in the archive
+        now = datetime.utcnow().isoformat()
+        folder_name = normalize_title_for_folder(title)
+        cur.execute(
+            """
+            INSERT INTO games (console_id, folder_name, title, genre, description, cover_url, metadata_json, release_year, developer, publisher, created_at, updated_at)
+            VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, NULL, NULL, ?, ?);
+            """,
+            (console_id, folder_name, title, sg["cover_url"], sg["release_year"], now, now),
+        )
+        new_game_id = cur.lastrowid
+
+        # Link series entry to the new game
+        cur.execute(
+            "UPDATE series_games SET game_id = ?, is_missing = 0 WHERE id = ?;",
+            (new_game_id, entry_id),
+        )
+
+        conn.commit()
+        conn.close()
+        logger.info(f"Added '{title}' to archive (game_id={new_game_id}, console_id={console_id})")
+        return {"status": "ok", "game_id": new_game_id, "console_id": console_id, "title": title}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to add missing game to archive: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add game to archive")
+
 @app.get("/api/series/expand/{game_id}")
 def expand_series_from_game(game_id: int):
     """Fetch all games in the same series from RAWG using a game in the archive"""

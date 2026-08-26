@@ -1653,11 +1653,13 @@ function renderSeriesDetail() {
       : `<div class="no-cover">No cover</div>`;
 
     const missingBadge = g.is_missing ? '<span class="series-missing-badge">MISSING</span>' : '';
+    const addBtn = g.is_missing ? `<button class="series-add-btn" onclick="addMissingToArchive(${g.id}, event)" title="Add to archive">＋</button>` : '';
 
     card.innerHTML = `
       <div class="game-cover" style="position: relative;">
         ${cover}
         ${missingBadge}
+        ${addBtn}
         <span class="series-position-badge">${g.position}</span>
       </div>
       <div class="game-title">${g.title}</div>
@@ -1681,6 +1683,38 @@ function renderSeriesDetail() {
 
     container.appendChild(card);
   });
+}
+
+async function addMissingToArchive(entryId, event) {
+  event.stopPropagation();
+  if (!currentSeriesId) return;
+
+  const game = currentSeriesGames.find((g) => g.id === entryId);
+  if (!game) return;
+
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "...";
+
+  try {
+    const res = await fetch(`${API}/series/${currentSeriesId}/games/${entryId}/add-to-archive`, { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.detail || "Failed to add game to archive");
+      btn.disabled = false;
+      btn.textContent = "＋";
+      return;
+    }
+
+    // Update the local game entry
+    game.is_missing = false;
+    game.game_id = data.game_id;
+    renderSeriesDetail();
+  } catch (e) {
+    console.error("addMissingToArchive failed:", e);
+    btn.disabled = false;
+    btn.textContent = "＋";
+  }
 }
 
 async function moveSeriesGame(entryId, direction, event) {
