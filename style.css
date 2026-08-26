@@ -2714,4 +2714,80 @@ button:disabled {
     flex: 1;
     font-size: 0.8rem;
   }
+
+  .series-sort-dropdown {
+    flex: 1;
+  }
+}
+
+/* ---- Sort Dropdown ---- */
+.series-sort-dropdown {
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.series-sort-dropdown:hover {
+  border-color: var(--accent);
+}
+
+.series-sort-dropdown:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ---- Selectable Missing Game Cards ---- */
+.missing-selectable {
+  cursor: pointer;
+  border: 2px solid rgba(255, 68, 68, 0.5);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.missing-selectable:hover {
+  border-color: rgba(255, 68, 68, 0.7);
+}
+
+.missing-selectable.selected {
+  border-color: var(--accent);
+}
+
+.missing-selectable.selected::after {
+  content: "\2713";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--accent);
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  z-index: 2;
+}
+
+/* ---- Wikipedia Source Tag ---- */
+.missing-source-tag {
+  display: inline-block;
+  background: rgba(100, 149, 237, 0.2);
+  color: #6495ed;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+/* ---- Select All / Deselect All buttons in creation ---- */
+#series-create-select-all {
+  align-items: center;
 }

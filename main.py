@@ -4920,6 +4920,234 @@ def expand_series_from_game(game_id: int):
         logger.error(f"Failed to expand series: {e}")
         raise HTTPException(status_code=500, detail="Failed to expand series from RAWG")
 
+@app.get("/api/series/search-wikipedia/{series_name}")
+def search_wikipedia_series(series_name: str):
+    """Search Wikipedia for games in a series/franchise by parsing wikitext tables."""
+    try:
+        all_found = []
+        seen_titles = set()
+        search_url = "https://en.wikipedia.org/w/api.php"
+
+        page_names_to_try = [
+            f"List of {series_name} video games",
+            f"List of {series_name} games",
+            f"{series_name} (series)",
+            f"{series_name} video game series",
+            f"{series_name}",
+        ]
+
+        # Also try searching Wikipedia for the right page
+        search_params = {
+            "action": "query", "format": "json", "list": "search",
+            "srsearch": f"{series_name} video game series",
+            "srlimit": 5, "redirects": 1, "utf8": 1,
+        }
+        try:
+            sres = requests.get(search_url, params=search_params, timeout=WIKIPEDIA_TIMEOUT, headers=WIKIPEDIA_HEADERS)
+            sres.raise_for_status()
+            sdata = sres.json()
+            if "query" in sdata and "search" in sdata["query"]:
+                for sr in sdata["query"]["search"]:
+                    t = sr["title"]
+                    if t not in page_names_to_try:
+                        page_names_to_try.insert(0, t)
+        except Exception:
+            pass
+
+        series_lower = series_name.lower().strip()
+
+        def clean_wiki_title(raw):
+            """Extract a clean title from wikitext markup like ''[[Page|Display]]'' or ''[[Page]]''."""
+            t = raw
+            t = re.sub(r"''+", "", t)
+            pipe_match = re.search(r"\[\[[^\]]*?\|([^\]]+?)\]\]", t)
+            if pipe_match:
+                t = pipe_match.group(1)
+            else:
+                link_match = re.search(r"\[\[([^\]]+?)\]\]", t)
+                if link_match:
+                    t = link_match.group(1)
+            t = re.sub(r"\[\[|\]\]", "", t)
+            t = re.sub(r"\{\{[^}]*\}\}", "", t)
+            t = re.sub(r'<ref[^>]*>.*?</ref>', '', t)
+            t = re.sub(r'<ref[^/]*/>', '', t)
+            t = t.strip()
+            t = re.sub(r"\s+", " ", t)
+            return t
+
+        for page_name in page_names_to_try:
+            try:
+                res = requests.get(search_url, params={
+                    "action": "query", "format": "json", "prop": "revisions",
+                    "titles": page_name, "rvprop": "content", "rvslots": "main",
+                    "utf8": 1, "redirects": 1,
+                }, timeout=WIKIPEDIA_TIMEOUT, headers=WIKIPEDIA_HEADERS)
+                res.raise_for_status()
+                data = res.json()
+
+                if "query" not in data or "pages" not in data["query"]:
+                    continue
+
+                pages = data["query"]["pages"]
+                page_id = next(iter(pages))
+                if int(page_id) < 0:
+                    continue
+
+                revisions = pages[page_id].get("revisions")
+                if not revisions:
+                    continue
+
+                wikitext = revisions[0].get("slots", {}).get("main", {}).get("*", "")
+                if not wikitext:
+                    continue
+
+                lines = wikitext.split("\n")
+                i = 0
+                while i < len(lines):
+                    line = lines[i].strip()
+
+                    if line.startswith("{|"):
+                        header_lines = []
+                        row_lines = []
+                        rows = []
+                        i += 1
+                        while i < len(lines) and not lines[i].strip().startswith("|}"):
+                            tl = lines[i].strip()
+                            if tl.startswith("!"):
+                                header_lines.append(tl)
+                            elif tl.startswith("|-"):
+                                if row_lines:
+                                    rows.append(row_lines)
+                                row_lines = []
+                            elif tl.startswith("|"):
+                                row_lines.append(tl)
+                            i += 1
+                        if row_lines:
+                            rows.append(row_lines)
+
+                        # Parse headers: "! Games" or "! Games !! Year"
+                        headers_text = []
+                        for hl in header_lines:
+                            parts = [p.strip().lower() for p in hl.lstrip("!").split("!!")]
+                            headers_text.extend(parts)
+
+                        games_col = -1
+                        year_col = -1
+                        for idx, h in enumerate(headers_text):
+                            if h in ("games", "title", "name", "game", "game title"):
+                                games_col = idx
+                            if h in ("year", "release year", "release", "released", "date"):
+                                year_col = idx
+
+                        if games_col < 0:
+                            continue
+
+                        for row in rows:
+                            # Each cell starts with "| "
+                            cells = []
+                            for cell_line in row:
+                                cell = cell_line.lstrip("|").strip()
+                                cells.append(cell)
+
+                            if len(cells) <= games_col:
+                                continue
+
+                            raw_title = cells[games_col]
+                            title = clean_wiki_title(raw_title)
+
+                            if not title or len(title) < 2 or len(title) > 80:
+                                continue
+
+                            lower = title.lower()
+                            skip_words = [
+                                "video game", "game series", "list of", "see also",
+                                "reception", "gameplay", "development", "compilation",
+                                "the series", "the game", "spin-off", "soundtrack",
+                            ]
+                            if any(sw in lower for sw in skip_words):
+                                continue
+
+                            # Extract year
+                            release_year = None
+                            if year_col >= 0 and len(cells) > year_col:
+                                year_match = re.search(r"(\d{4})", cells[year_col])
+                                if year_match:
+                                    y = int(year_match.group(1))
+                                    if 1980 <= y <= 2030:
+                                        release_year = y
+
+                            if re.match(r"^[IVXLCDM]+$", title):
+                                title = f"{series_name} {title}"
+                            elif not any(sw in lower for sw in series_lower.split()):
+                                if len(title) < 25:
+                                    title = f"{series_name} {title}"
+
+                            title_key = title.lower().strip()
+                            if title_key not in seen_titles:
+                                seen_titles.add(title_key)
+                                all_found.append({
+                                    "title": title,
+                                    "release_year": release_year,
+                                    "cover_url": "",
+                                    "platform": "",
+                                    "source": "wikipedia",
+                                })
+
+                    i += 1
+
+                # Also parse {{Video game titles/item}} templates (used by Final Fantasy page)
+                if not all_found:
+                    template_pattern = re.compile(
+                        r'\{\{Video game titles/item\s*\n'
+                        r'((?:\|[^}]+\n?)+)',
+                        re.IGNORECASE
+                    )
+                    for tm in template_pattern.finditer(wikitext):
+                        block = tm.group(1)
+                        title = ""
+                        release_year = None
+
+                        title_match = re.search(r'\|title\s*=\s*(.+)', block)
+                        if title_match:
+                            title = clean_wiki_title(title_match.group(1).strip())
+                        else:
+                            article_match = re.search(r'\|article\s*=\s*(.+)', block)
+                            if article_match:
+                                title = clean_wiki_title(article_match.group(1).strip())
+
+                        release_match = re.search(r'\|release\s*=\s*(\d{4})', block)
+                        if release_match:
+                            y = int(release_match.group(1))
+                            if 1980 <= y <= 2030:
+                                release_year = y
+
+                        if not title or len(title) < 2 or len(title) > 80:
+                            continue
+
+                        title_key = title.lower().strip()
+                        if title_key not in seen_titles:
+                            seen_titles.add(title_key)
+                            all_found.append({
+                                "title": title,
+                                "release_year": release_year,
+                                "cover_url": "",
+                                "platform": "",
+                                "source": "wikipedia",
+                            })
+
+                if all_found:
+                    break
+
+            except Exception as e:
+                logger.debug(f"Wikipedia page parse failed for '{page_name}': {e}")
+                continue
+
+        all_found.sort(key=lambda x: x.get("release_year") or 9999)
+        return {"games": all_found, "total": len(all_found)}
+    except Exception as e:
+        logger.error(f"Wikipedia series search failed: {e}")
+        raise HTTPException(status_code=500, detail="Wikipedia search failed")
+
 # -------------------------------------------------------------------
 # API: Archive Stats
 # -------------------------------------------------------------------

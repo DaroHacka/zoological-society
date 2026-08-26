@@ -238,6 +238,10 @@
           <p id="series-create-hint" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
             Type a series name to search your archive for matching games:
           </p>
+          <div id="series-create-select-all" style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-select-all-create" class="secondary hidden" onclick="selectAllCreateResults()" style="font-size: 0.8rem; padding: 4px 10px;">Select All</button>
+            <button id="btn-deselect-all-create" class="secondary hidden" onclick="deselectAllCreateResults()" style="font-size: 0.8rem; padding: 4px 10px;">Deselect All</button>
+          </div>
           <div id="series-create-results" class="game-list">
             <!-- Matching archive games appear here -->
           </div>
@@ -257,6 +261,11 @@
               <span id="series-detail-count" class="series-count-badge"></span>
             </div>
             <div class="series-detail-actions">
+              <select id="series-sort-select" class="series-sort-dropdown" onchange="sortSeriesDetail(this.value)">
+                <option value="custom">Custom Order</option>
+                <option value="chronological">Chronological</option>
+                <option value="console">By Console</option>
+              </select>
               <button class="secondary" onclick="searchInternetForMissing()">🔍 Search Internet for Missing Titles</button>
               <button class="secondary" style="color: #ff6b6b;" onclick="deleteSeriesFromDetail()">🗑️ Delete Series</button>
             </div>
@@ -266,13 +275,18 @@
           </div>
           <div id="series-missing-confirm" class="hidden">
             <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+              <p id="series-missing-progress" class="hidden" style="color: var(--accent); font-size: 0.85rem; margin-bottom: 8px; font-style: italic;"></p>
               <h3 style="color: var(--accent); margin-bottom: 8px;">🔍 Missing Titles Found</h3>
-              <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">These games were found on RAWG but are not in your archive. Confirm to add them to this series:</p>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Click a title to select/deselect it. Only selected titles will be added.</p>
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <button class="secondary" onclick="toggleAllMissing(true)" style="font-size: 0.8rem; padding: 3px 8px;">Select All</button>
+                <button class="secondary" onclick="toggleAllMissing(false)" style="font-size: 0.8rem; padding: 3px 8px;">Deselect All</button>
+              </div>
               <div id="series-missing-games-list" class="game-list">
-                <!-- Missing game cards -->
+                <!-- Missing game cards appear here incrementally -->
               </div>
               <div style="display: flex; gap: 8px; margin-top: 12px;">
-                <button onclick="confirmAllMissingGames()">✅ Add All Missing Games</button>
+                <button onclick="confirmSelectedMissing()">✅ Add Selected (<span id="series-missing-count">0</span>)</button>
                 <button class="secondary" onclick="dismissMissingGames()">Dismiss</button>
               </div>
             </div>
