@@ -19,6 +19,7 @@
 
     <!-- HEADER -->
     <header class="app-header">
+      <button class="sidebar-toggle header-hamburger" id="btn-hamburger" onclick="toggleSidebarCollapse()" title="Menu">☰</button>
       <div class="header-left">
         <span id="title-collapse-arrow" class="collapse-arrow" onclick="toggleTitleCollapse()">▼</span>
         <div class="title-area">
@@ -39,10 +40,11 @@
     </header>
 
 <!-- BODY -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="closeSidebarOverlay()"></div>
   <div class="app-body">
 
     <!-- SIDEBAR -->
-      <aside class="sidebar">
+      <aside class="sidebar" id="sidebar">
         <h2 onclick="toggleConsoleList()" style="cursor: pointer;">Consoles <span id="console-list-toggle-icon">▶</span></h2>
         <ul id="console-list">
           <!-- Filled by JS -->

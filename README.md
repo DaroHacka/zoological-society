@@ -43,6 +43,15 @@ This project is built for people who want a personal archive that feels **beauti
 - **Per-Operation Override** - Options modal lets you set defaults that apply to every single-game fetch
 - **Auto Fallback** - "Auto" mode chains DuckDuckGo → TheGamesDB → RAWG with automatic fallback
 
+#### 📱 Tablet & Mobile Optimization
+- **Responsive Layout** - Full tablet support with 3 breakpoints (1024px, 768px, 480px) — the app now works beautifully on iPads and phones
+- **Collapsible Sidebar** - Sidebar narrows on tablet and collapses behind a hamburger menu (☰) on small screens, with backdrop overlay
+- **Touch-Friendly Interactions** - `touch-action: manipulation` eliminates double-tap delays; swipe left/right on the game list changes pages
+- **Swipe Navigation** - Swipe left/right in the lightbox to browse screenshots, in the game detail modal to browse games — content stays locked in place during swipes via `preventDefault()` on horizontal intent
+- **Header Responsiveness** - Header images scale to screen width, capped at safe heights per breakpoint (200px PC, 120px tablet, 80px phone)
+- **Game Detail Scrolling** - Game detail modal now scrolls vertically on touch devices (overflow-y: auto)
+- **Lightbox Fixes** - Close button z-index fix, no-repeat background to prevent tiling, slide animation on swipe
+
 ---
 
 ### Previous Implementations

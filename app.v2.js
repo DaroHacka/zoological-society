@@ -2001,6 +2001,103 @@ function initLightboxHandlers() {
 
   initLightboxDrag();
 
+  // Touch swipe for lightbox (when not zoomed)
+  let lightboxSwipeStartX = 0;
+  let lightboxSwipeStartY = 0;
+  let lightboxSwipeStartTime = 0;
+  let lightboxSwipeLocked = false;
+
+  if (lightbox) {
+    lightbox.addEventListener("touchstart", (e) => {
+      if (isZoomed) return;
+      if (e.touches.length !== 1) return;
+      lightboxSwipeStartX = e.touches[0].clientX;
+      lightboxSwipeStartY = e.touches[0].clientY;
+      lightboxSwipeStartTime = Date.now();
+      lightboxSwipeLocked = false;
+    }, { passive: false });
+
+    lightbox.addEventListener("touchmove", (e) => {
+      if (isZoomed || lightboxSwipeLocked) return;
+      const dx = Math.abs(e.touches[0].clientX - lightboxSwipeStartX);
+      const dy = Math.abs(e.touches[0].clientY - lightboxSwipeStartY);
+      if (dx > 10 && dx > dy) {
+        lightboxSwipeLocked = true;
+        e.preventDefault();
+      } else if (dy > 10 && dy > dx) {
+        lightboxSwipeLocked = false;
+      }
+    }, { passive: false });
+
+    lightbox.addEventListener("touchend", (e) => {
+      if (isZoomed) return;
+      const dx = e.changedTouches[0].clientX - lightboxSwipeStartX;
+      const dy = Math.abs(e.changedTouches[0].clientY - lightboxSwipeStartY);
+      const dt = Date.now() - lightboxSwipeStartTime;
+      if (Math.abs(dx) > 50 && dy < 40 && dt < 500) {
+        const img = document.getElementById("lightbox-img");
+        if (dx < 0) {
+          if (img) { img.classList.remove("lightbox-slide-left"); img.classList.add("lightbox-slide-right"); }
+          nextScreenshot();
+        } else {
+          if (img) { img.classList.remove("lightbox-slide-right"); img.classList.add("lightbox-slide-left"); }
+          previousScreenshot();
+        }
+        setTimeout(() => { if (img) { img.classList.remove("lightbox-slide-left", "lightbox-slide-right"); } }, 300);
+      }
+      lightboxSwipeLocked = false;
+    }, { passive: true });
+  }
+
+  // Touch swipe for game detail modal
+  const gameDetailModal = document.getElementById("modal-game-detail");
+  let gameSwipeStartX = 0;
+  let gameSwipeStartY = 0;
+  let gameSwipeStartTime = 0;
+  let gameSwipeLocked = false;
+
+  if (gameDetailModal) {
+    gameDetailModal.addEventListener("touchstart", (e) => {
+      const lb = document.getElementById("screenshot-lightbox");
+      if (lb && lb.classList.contains("active")) return;
+      const isTyping = document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA');
+      if (isTyping) return;
+      if (e.touches.length !== 1) return;
+      gameSwipeStartX = e.touches[0].clientX;
+      gameSwipeStartY = e.touches[0].clientY;
+      gameSwipeStartTime = Date.now();
+      gameSwipeLocked = false;
+    }, { passive: false });
+
+    gameDetailModal.addEventListener("touchmove", (e) => {
+      if (gameSwipeLocked) return;
+      const dx = Math.abs(e.touches[0].clientX - gameSwipeStartX);
+      const dy = Math.abs(e.touches[0].clientY - gameSwipeStartY);
+      if (dx > 10 && dx > dy) {
+        gameSwipeLocked = true;
+        e.preventDefault();
+      } else if (dy > 10 && dy > dx) {
+        gameSwipeLocked = false;
+      }
+    }, { passive: false });
+
+    gameDetailModal.addEventListener("touchend", (e) => {
+      const lb = document.getElementById("screenshot-lightbox");
+      if (lb && lb.classList.contains("active")) return;
+      const dx = e.changedTouches[0].clientX - gameSwipeStartX;
+      const dy = Math.abs(e.changedTouches[0].clientY - gameSwipeStartY);
+      const dt = Date.now() - gameSwipeStartTime;
+      if (Math.abs(dx) > 60 && dy < 50 && dt < 500) {
+        if (dx < 0) {
+          navigateToNextGame();
+        } else {
+          navigateToPrevGame();
+        }
+      }
+      gameSwipeLocked = false;
+    }, { passive: true });
+  }
+
   // Keyboard navigation for lightbox and game detail modal
   document.addEventListener("keydown", (e) => {
     const lightbox = document.getElementById("screenshot-lightbox");
@@ -2424,6 +2521,7 @@ async function selectConsole(id) {
   updateConsoleSummary();
   await loadGamesForConsole(id);
   extractGenres();
+  closeSidebarOverlay();
 }
 
 function updateConsoleSummary() {
@@ -4252,6 +4350,22 @@ async function populateThemeModal() {
   const fileInput = $("#theme-header-upload");
   if (fileInput) fileInput.value = "";
 
+  // Load saved colors into the inputs
+  const raw = localStorage.getItem("gameArchiveTheme");
+  if (raw) {
+    try {
+      const theme = JSON.parse(raw);
+      if (theme.bgColor) {
+        const bgInput = $("#theme-bg-color");
+        if (bgInput) bgInput.value = theme.bgColor;
+      }
+      if (theme.accent) {
+        const accentInput = $("#theme-accent-color");
+        if (accentInput) accentInput.value = theme.accent;
+      }
+    } catch (e) {}
+  }
+
   // Load default fetch sources
   try {
     const ds = await apiCall("/settings/default-source");
@@ -4302,6 +4416,12 @@ function applySavedTheme() {
   }
 }
 
+// -----------------------------------------------------------
+// Theme
+// -----------------------------------------------------------
+
+let headerGeneration = 0;
+
 function applyTheme(theme) {
   if (theme.bgColor) {
     document.documentElement.style.setProperty("--bg-color", theme.bgColor);
@@ -4311,15 +4431,21 @@ function applyTheme(theme) {
     document.documentElement.style.setProperty("--accent", theme.accent);
   }
   if (theme.headerImage) {
+    headerGeneration++;
+    const gen = headerGeneration;
     const img = new Image();
     img.onload = function() {
-      $(".app-header").style.backgroundImage = `url("${theme.headerImage}")`;
-      $(".app-header").style.backgroundSize = "100% auto";
-      $(".app-header").style.backgroundPosition = "center";
-      $(".app-header").style.height = this.naturalHeight + "px";
+      if (gen !== headerGeneration) return; // stale — another applyTheme() ran
+      const header = $(".app-header");
+      header.style.backgroundImage = `url("${theme.headerImage}")`;
+      header.style.backgroundRepeat = "no-repeat";
+      header.style.backgroundSize = "100% auto";
+      header.style.backgroundPosition = "center";
+      header.style.height = Math.min(this.naturalHeight, 200) + "px";
+      header.style.overflow = "hidden";
     };
     img.onerror = function() {
-      $(".app-header").style.backgroundImage = "none";
+      if (gen !== headerGeneration) return; // stale — don't clear
     };
     img.src = theme.headerImage;
   } else {
@@ -4346,6 +4472,54 @@ function loadTitleCollapseState() {
     $(".title-area").classList.add("collapsed");
     $("#title-collapse-arrow").textContent = "▶";
   }
+}
+
+// -----------------------------------------------------------
+// Sidebar toggle (unified: tablet collapse + small screen overlay)
+// -----------------------------------------------------------
+
+function toggleSidebarCollapse() {
+  const sidebar = $("#sidebar");
+  if (!sidebar) return;
+  const isSmallScreen = window.innerWidth <= 768;
+  if (isSmallScreen) {
+    // Overlay mode: toggle open/close
+    sidebar.classList.toggle("sidebar-open");
+    const backdrop = $("#sidebar-backdrop");
+    if (backdrop) backdrop.classList.toggle("active", sidebar.classList.contains("sidebar-open"));
+  } else {
+    // Tablet mode: toggle collapsed/expanded
+    sidebar.classList.toggle("sidebar-collapsed");
+    const collapsed = sidebar.classList.contains("sidebar-collapsed");
+    localStorage.setItem("sidebarCollapsed", collapsed ? "true" : "false");
+  }
+}
+
+function loadSidebarCollapseState() {
+  const sidebar = $("#sidebar");
+  if (!sidebar) return;
+  const collapsed = localStorage.getItem("sidebarCollapsed") === "true";
+  if (collapsed && window.innerWidth > 768) {
+    sidebar.classList.add("sidebar-collapsed");
+  }
+}
+
+// -----------------------------------------------------------
+// Sidebar overlay (small tablet / phone)
+// -----------------------------------------------------------
+
+function openSidebarOverlay() {
+  const sidebar = $("#sidebar");
+  const backdrop = $("#sidebar-backdrop");
+  if (sidebar) sidebar.classList.add("sidebar-open");
+  if (backdrop) backdrop.classList.add("active");
+}
+
+function closeSidebarOverlay() {
+  const sidebar = $("#sidebar");
+  const backdrop = $("#sidebar-backdrop");
+  if (sidebar) sidebar.classList.remove("sidebar-open");
+  if (backdrop) backdrop.classList.remove("active");
 }
 
 // -----------------------------------------------------------
@@ -4401,55 +4575,6 @@ function loadCustomTitle() {
       homepageTitle.textContent = customTitle;
     }
   }
-}
-
-// -----------------------------------------------------------
-// Header management
-// -----------------------------------------------------------
-async function populateThemeModal() {
-  const currentHeaderImg = $("#theme-current-header-img");
-  const currentHeaderDiv = $("#theme-current-header");
-  
-  if (!currentHeaderDiv) return;
-  
-  try {
-    const res = await fetch(`${API}/theme/header`);
-    const data = await res.json();
-    
-    if (data.exists) {
-      currentHeaderImg.src = data.url;
-      currentHeaderDiv.classList.remove("hidden");
-    } else {
-      currentHeaderDiv.classList.add("hidden");
-    }
-  } catch (e) {
-    currentHeaderDiv.classList.add("hidden");
-  }
-}
-
-async function onRemoveThemeHeader() {
-  try {
-    setLoading(true);
-    const res = await fetch(`${API}/theme/header`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Failed to delete");
-    
-    const raw = localStorage.getItem("gameArchiveTheme");
-    if (raw) {
-      const theme = JSON.parse(raw);
-      theme.headerImage = "";
-      localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
-      applyTheme(theme);
-    }
-    
-    $("#theme-current-header").classList.add("hidden");
-    $("#theme-header-image").value = "";
-    $("#theme-header-upload").value = "";
-    
-    showToast("Header image removed", "success");
-  } catch (e) {
-    showToast("Failed to remove header: " + e.message, "error");
-  }
-  setLoading(false);
 }
 
 let headerRotationInterval = null;
@@ -4577,7 +4702,67 @@ async function applyRandomHeaderOnLoad() {
 // -----------------------------------------------------------
 function initExtraFeatures() {
   loadTitleCollapseState();
+  loadSidebarCollapseState();
   loadConsoleListState();
   loadCustomTitle();
   applyRandomHeaderOnLoad();
+
+  // Clean up sidebar state on resize (e.g. tablet rotation)
+  window.addEventListener("resize", () => {
+    const sidebar = $("#sidebar");
+    if (!sidebar) return;
+    if (window.innerWidth > 768) {
+      closeSidebarOverlay();
+    }
+  });
+
+  // Swipe left/right on game list to change pages
+  initGameListSwipe();
+}
+
+function initGameListSwipe() {
+  const gameList = $("#game-list");
+  if (!gameList) return;
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeStartTime = 0;
+  let swipeLocked = false;
+
+  gameList.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    swipeStartX = e.touches[0].clientX;
+    swipeStartY = e.touches[0].clientY;
+    swipeStartTime = Date.now();
+    swipeLocked = false;
+  }, { passive: false });
+
+  gameList.addEventListener("touchmove", (e) => {
+    if (swipeLocked) return;
+    const dx = Math.abs(e.touches[0].clientX - swipeStartX);
+    const dy = Math.abs(e.touches[0].clientY - swipeStartY);
+    if (dx > 10 && dx > dy) {
+      swipeLocked = true;
+      e.preventDefault();
+    } else if (dy > 10 && dy > dx) {
+      swipeLocked = false;
+    }
+  }, { passive: false });
+
+  gameList.addEventListener("touchend", (e) => {
+    const dx = e.changedTouches[0].clientX - swipeStartX;
+    const dy = Math.abs(e.changedTouches[0].clientY - swipeStartY);
+    const dt = Date.now() - swipeStartTime;
+    if (Math.abs(dx) > 60 && dy < 40 && dt < 500) {
+      const totalPages = Math.ceil((gamesByConsole[currentConsoleId] || []).length / PAGE_SIZE);
+      if (totalPages <= 1) return;
+      if (dx < 0 && currentPage < totalPages) {
+        currentPage++;
+        renderGamesForCurrentConsole();
+      } else if (dx > 0 && currentPage > 1) {
+        currentPage--;
+        renderGamesForCurrentConsole();
+      }
+    }
+    swipeLocked = false;
+  }, { passive: true });
 }
