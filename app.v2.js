@@ -1397,77 +1397,10 @@ async function loadSeries() {
   } catch (e) {
     seriesList = [];
   }
-  renderSeries();
 }
 
 function renderSeries() {
-  const list = $("#series-list");
-  const createBtn = $("#btn-create-series");
-  if (!list) return;
-
-  list.innerHTML = "";
-
-  if (seriesList.length === 0) {
-    list.style.display = "none";
-    if (createBtn) createBtn.style.display = "block";
-    return;
-  }
-
-  if (createBtn) createBtn.style.display = "block";
-
-  seriesList.forEach((s) => {
-    const li = document.createElement("li");
-    li.className = s.id === currentSeriesId ? "series-item active" : "series-item";
-    li.dataset.id = s.id;
-    li.innerHTML = `
-      <span class="series-name">${s.name}</span>
-      <span class="series-count">${s.game_count}</span>
-      <button class="delete-series-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series">🗑️</button>
-    `;
-    li.addEventListener("click", async (e) => {
-      if (!e.target.classList.contains("delete-series-btn")) {
-        try {
-          await selectSeries(s.id);
-        } catch (err) {
-          console.error("selectSeries failed:", err);
-        }
-      }
-    });
-    list.appendChild(li);
-  });
-
-  list.style.display = "block";
-}
-
-function toggleSeriesList() {
-  const list = $("#series-list");
-  const icon = $("#series-toggle-icon");
-  const createBtn = $("#btn-create-series");
-  if (!list) return;
-
-  const collapsed = list.style.display === "none" || list.style.display === "";
-  list.style.display = collapsed ? "block" : "none";
-  icon.textContent = collapsed ? "▼" : "▶";
-  if (createBtn) createBtn.style.display = collapsed ? "block" : "none";
-  localStorage.setItem("seriesListCollapsed", collapsed ? "false" : "true");
-}
-
-function loadSeriesListState() {
-  const collapsed = localStorage.getItem("seriesListCollapsed") !== "false";
-  const list = $("#series-list");
-  const icon = $("#series-toggle-icon");
-  const createBtn = $("#btn-create-series");
-  if (!list) return;
-
-  if (collapsed) {
-    list.style.display = "none";
-    icon.textContent = "▶";
-    if (createBtn) createBtn.style.display = "none";
-  } else {
-    list.style.display = "block";
-    icon.textContent = "▼";
-    if (createBtn) createBtn.style.display = "block";
-  }
+  // Series sidebar list has been replaced with buttons — no list to render
 }
 
 // --- Series Creation (Full Page) ---
@@ -1484,6 +1417,7 @@ function openSeriesCreateView() {
   $(".alpha-index").style.display = "none";
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "none";
+  $("#series-list-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-create-view").classList.remove("hidden");
 
@@ -1670,6 +1604,7 @@ async function selectSeries(id) {
     $("#homepage").classList.add("hidden");
     $("#search-results").classList.add("hidden");
     $("#series-create-view").classList.add("hidden");
+    $("#series-list-view").classList.add("hidden");
     $(".console-summary").style.display = "none";
     $(".alpha-index").style.display = "none";
     $(".metadata-actions").style.display = "none";
@@ -1709,7 +1644,12 @@ function renderSeriesDetail() {
     return;
   }
 
-  currentSeriesGames.forEach((g, idx) => {
+  // Split into missing (top) and owned (bottom)
+  const missingGames = currentSeriesGames.filter(g => g.is_missing);
+  const ownedGames = currentSeriesGames.filter(g => !g.is_missing);
+
+  // Helper to create a series game card
+  function createSeriesGameCard(g, idx, total) {
     const card = document.createElement("article");
     card.className = g.is_missing ? "game-card series-missing" : "game-card";
 
@@ -1731,7 +1671,7 @@ function renderSeriesDetail() {
         ${g.release_year || ''}
         <span class="series-card-actions">
           <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'up', event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
-          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === currentSeriesGames.length - 1 ? 'disabled' : ''}>▼</button>
+          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === total - 1 ? 'disabled' : ''}>▼</button>
           <button class="series-remove-btn" onclick="removeGameFromSeriesUI(${g.id}, event)" title="Remove from series">✕</button>
         </span>
       </div>
@@ -1744,7 +1684,26 @@ function renderSeriesDetail() {
       }
     });
 
-    container.appendChild(card);
+    return card;
+  }
+
+  // Render missing games first (at the top)
+  if (missingGames.length > 0) {
+    missingGames.forEach((g, idx) => {
+      container.appendChild(createSeriesGameCard(g, idx, missingGames.length));
+    });
+    // Add separator if there are both missing and owned
+    if (ownedGames.length > 0) {
+      const sep = document.createElement("div");
+      sep.className = "series-separator";
+      sep.innerHTML = `<span style="color: var(--text-muted); font-size: 0.85rem; padding: 8px 0;">— Owned games —</span>`;
+      container.appendChild(sep);
+    }
+  }
+
+  // Render owned games
+  ownedGames.forEach((g, idx) => {
+    container.appendChild(createSeriesGameCard(g, idx, ownedGames.length));
   });
 }
 
@@ -1836,6 +1795,252 @@ async function deleteSeries(id, event) {
   } catch (e) {
     // Error already shown
   }
+}
+
+// --- Series List View (Main Content) ---
+
+function showSeriesListView() {
+  currentView = 'series-list';
+  currentConsoleId = null;
+  currentCollectionId = null;
+  currentSeriesId = null;
+  currentSeriesGames = [];
+  activeFilter = null;
+  activeGenreFilter = null;
+  activeStatusFilter = null;
+  statusFilteredGames = [];
+  currentPage = 1;
+
+  $("#homepage").classList.add("hidden");
+  $("#search-results").classList.add("hidden");
+  $(".console-summary").style.display = "none";
+  $(".alpha-index").style.display = "none";
+  $(".metadata-actions").style.display = "none";
+  $("#game-list").style.display = "none";
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.remove("hidden");
+
+  savePageState();
+  renderSeriesGrid();
+}
+
+function renderSeriesGrid() {
+  const container = $("#series-grid");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (seriesList.length === 0) {
+    container.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">No series yet. Create one to get started!</p>';
+    return;
+  }
+
+  seriesList.forEach((s) => {
+    const card = document.createElement("article");
+    card.className = "game-card series-grid-card";
+
+    const coverUrl = s.cover_url ? toAbsoluteUrl(s.cover_url) : "";
+    const cover = coverUrl
+      ? `<img src="${coverUrl}" alt="${s.name}" />`
+      : `<div class="no-cover">📚</div>`;
+
+    card.innerHTML = `
+      <div class="game-cover">${cover}</div>
+      <div class="game-title">${s.name}</div>
+      <div class="game-meta">
+        <span class="game-console-badge">${s.game_count} games</span>
+        ${s.genre ? `<span class="genre-badge">${s.genre}</span>` : ''}
+      </div>
+      <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series">🗑️</button>
+    `;
+
+    card.addEventListener("click", (e) => {
+      if (e.target.closest('.series-delete-grid-btn')) return;
+      selectSeries(s.id);
+    });
+
+    container.appendChild(card);
+  });
+}
+
+function groupSeriesView(mode) {
+  const container = $("#series-grid");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (mode === "genre") {
+    // Group by genre
+    const genreGroups = {};
+    seriesList.forEach((s) => {
+      const genre = s.genre || "Uncategorized";
+      if (!genreGroups[genre]) genreGroups[genre] = [];
+      genreGroups[genre].push(s);
+    });
+
+    Object.keys(genreGroups).sort().forEach((genre) => {
+      const heading = document.createElement("h3");
+      heading.className = "series-genre-heading";
+      heading.textContent = genre;
+      container.appendChild(heading);
+
+      const grid = document.createElement("div");
+      grid.className = "game-list";
+      genreGroups[genre].forEach((s) => {
+        grid.appendChild(createSeriesGridCard(s));
+      });
+      container.appendChild(grid);
+    });
+  } else {
+    renderSeriesGrid();
+  }
+}
+
+function createSeriesGridCard(s) {
+  const card = document.createElement("article");
+  card.className = "game-card series-grid-card";
+
+  const coverUrl = s.cover_url ? toAbsoluteUrl(s.cover_url) : "";
+  const cover = coverUrl
+    ? `<img src="${coverUrl}" alt="${s.name}" />`
+    : `<div class="no-cover">📚</div>`;
+
+  card.innerHTML = `
+    <div class="game-cover">${cover}</div>
+    <div class="game-title">${s.name}</div>
+    <div class="game-meta">
+      <span class="game-console-badge">${s.game_count} games</span>
+      ${s.genre ? `<span class="genre-badge">${s.genre}</span>` : ''}
+    </div>
+    <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series">🗑️</button>
+  `;
+
+  card.addEventListener("click", (e) => {
+    if (e.target.closest('.series-delete-grid-btn')) return;
+    selectSeries(s.id);
+  });
+
+  return card;
+}
+
+// --- Game Detail Filters (Sidebar) ---
+
+let detailFilterState = {};
+let activeDetailFilters = { decade: null, developer: null, publisher: null };
+
+async function loadDetailFilters() {
+  try {
+    const filters = await apiCall("/metadata-filters");
+    renderDetailFilterList("decade", filters.decades || []);
+    renderDetailFilterList("developer", filters.developers || []);
+    renderDetailFilterList("publisher", filters.publishers || []);
+    // Show the section if there's any data
+    const section = $("#detail-filter-section");
+    if (section && (filters.decades?.length || filters.developers?.length || filters.publishers?.length)) {
+      section.style.display = "block";
+    }
+  } catch (e) {
+    console.warn("Failed to load detail filters:", e);
+  }
+}
+
+function renderDetailFilterList(type, items) {
+  const list = $(`#${type}-filter-list`);
+  if (!list) return;
+  list.innerHTML = "";
+  items.forEach((item) => {
+    const li = document.createElement("li");
+    li.className = "detail-filter-item";
+    li.dataset.value = item.value;
+    li.innerHTML = `${item.value} <span class="count">${item.count}</span>`;
+    li.addEventListener("click", () => applyDetailFilter(type, item.value));
+    list.appendChild(li);
+  });
+}
+
+function toggleDetailFilter() {
+  const content = $("#detail-filter-content");
+  const icon = $("#detail-filter-toggle-icon");
+  if (!content) return;
+  const collapsed = content.style.display === "none";
+  content.style.display = collapsed ? "block" : "none";
+  icon.textContent = collapsed ? "▼" : "▶";
+}
+
+function toggleDetailFilterGroup(type) {
+  const list = $(`#${type}-filter-list`);
+  const icon = $(`#${type}-toggle-icon`);
+  if (!list) return;
+  const collapsed = list.style.display === "none";
+  list.style.display = collapsed ? "block" : "none";
+  icon.textContent = collapsed ? "▼" : "▶";
+}
+
+function applyDetailFilter(type, value) {
+  // Toggle filter: if already active, deactivate
+  if (activeDetailFilters[type] === value) {
+    activeDetailFilters[type] = null;
+  } else {
+    activeDetailFilters[type] = value;
+  }
+
+  // Update active state in the UI
+  const list = $(`#${type}-filter-list`);
+  if (list) {
+    list.querySelectorAll(".detail-filter-item").forEach((li) => {
+      li.classList.toggle("active", li.dataset.value === activeDetailFilters[type]);
+    });
+  }
+
+  // Apply filter to current view
+  filterGamesByDetail();
+}
+
+function filterGamesByDetail() {
+  const hasFilter = Object.values(activeDetailFilters).some(v => v !== null);
+  if (!hasFilter) {
+    // No filters active — restore normal view
+    if (currentConsoleId) {
+      renderGamesForCurrentConsole();
+    } else if (currentView === 'homepage') {
+      renderHomepage();
+    }
+    return;
+  }
+
+  // Get all games from current console or all games
+  let allGames = [];
+  if (currentConsoleId && gamesByConsole[currentConsoleId]) {
+    allGames = gamesByConsole[currentConsoleId];
+  }
+
+  // Apply filters
+  const filtered = allGames.filter((g) => {
+    if (activeDetailFilters.decade) {
+      if (!g.release_year) return false;
+      const decade = `${Math.floor(g.release_year / 10) * 10}s`;
+      if (decade !== activeDetailFilters.decade) return false;
+    }
+    if (activeDetailFilters.developer) {
+      if (!g.developer) return false;
+      if (!g.developer.split(",").map(d => d.trim()).includes(activeDetailFilters.developer)) return false;
+    }
+    if (activeDetailFilters.publisher) {
+      if (!g.publisher) return false;
+      if (!g.publisher.split(",").map(p => p.trim()).includes(activeDetailFilters.publisher)) return false;
+    }
+    return true;
+  });
+
+  // Render filtered games
+  const container = $("#game-list");
+  container.innerHTML = "";
+  if (filtered.length === 0) {
+    container.innerHTML = '<p class="no-items">No games match the selected filters</p>';
+    return;
+  }
+  filtered.forEach((g) => {
+    container.appendChild(createGameCard(g, ""));
+  });
 }
 
 // --- Internet Search for Missing Titles ---
@@ -2044,8 +2249,27 @@ function dismissMissingGames() {
 
 // --- Sort/Order ---
 
-function sortSeriesDetail(mode) {
+async function sortSeriesDetail(mode) {
   if (!currentSeriesGames || currentSeriesGames.length === 0) return;
+
+  // For chronological/console sort, fetch missing release years first
+  if ((mode === "chronological" || mode === "console") && currentSeriesId) {
+    const missingYears = currentSeriesGames.filter(g => !g.release_year);
+    if (missingYears.length > 0) {
+      showToast(`Fetching release dates for ${missingYears.length} games...`, "info");
+      try {
+        const result = await apiCall(`/series/${currentSeriesId}/fetch-metadata`);
+        if (result.updated > 0) {
+          showToast(`Updated ${result.updated} release dates`, "success");
+          // Re-fetch games to get updated data
+          const games = await apiCall(`/series/${currentSeriesId}/games`);
+          currentSeriesGames = games;
+        }
+      } catch (e) {
+        console.warn("Failed to fetch series metadata:", e);
+      }
+    }
+  }
 
   if (mode === "custom") {
     currentSeriesGames.sort((a, b) => a.position - b.position);
@@ -2156,6 +2380,38 @@ async function loadLastAdded() {
   }
 }
 
+function loadHomepageSeries() {
+  const section = $("#my-series-section");
+  const container = $("#my-series-list");
+  if (!section || !container) return;
+
+  if (seriesList.length === 0) {
+    section.style.display = "none";
+    return;
+  }
+
+  section.style.display = "block";
+  container.innerHTML = "";
+
+  seriesList.forEach((s) => {
+    const div = document.createElement("div");
+    div.className = "recent-game-card";
+    div.onclick = () => selectSeries(s.id);
+
+    const coverUrl = s.cover_url ? toAbsoluteUrl(s.cover_url) : "";
+    const coverImg = coverUrl
+      ? `<img src="${coverUrl}" alt="${s.name}" />`
+      : `<div class="no-cover-small" style="width:100px;height:150px;background:var(--card-bg);display:flex;align-items:center;justify-content:center;border-radius:var(--radius);font-size:1.5rem;">📚</div>`;
+
+    div.innerHTML = `
+      ${coverImg}
+      <div class="title">${s.name}</div>
+      <div style="font-size: 0.75rem; color: var(--text-muted);">${s.game_count} games</div>
+    `;
+    container.appendChild(div);
+  });
+}
+
 function goToHomepage() {
   currentConsoleId = null;
   currentCollectionId = null;
@@ -2163,6 +2419,7 @@ function goToHomepage() {
   activeFilter = null;
   activeGenreFilter = null;
   activeStatusFilter = null;
+  activeDetailFilters = { decade: null, developer: null, publisher: null };
   statusFilteredGames = [];
   consoleStats = null;
   currentPage = 1;
@@ -2178,6 +2435,7 @@ function goToHomepage() {
   // Hide series views
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.add("hidden");
   $("#game-list").style.display = "";
   
   renderHomepage();
@@ -2199,11 +2457,14 @@ function renderHomepage() {
   $("#game-list").style.display = "";
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.add("hidden");
   
   // Load stats and recently viewed
   loadStats();
   loadRecentlyViewed();
   loadLastAdded();
+  loadHomepageSeries();
+  loadDetailFilters();
 }
 
 function showConsoleView() {
@@ -2213,6 +2474,7 @@ function showConsoleView() {
   $(".app-body").classList.remove("show-homepage");
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.add("hidden");
   
   // Show console view elements
   $(".console-summary").style.display = "flex";
@@ -2274,9 +2536,13 @@ function createGameCard(game, consoleName) {
     ? `<img src="${toAbsoluteUrl(game.cover_url)}${game.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${game.title} cover" />`
     : `<div class="no-cover">No cover</div>`;
 
+  const yearBadge = game.release_year ? `<span class="game-year-badge">${game.release_year}</span>` : '';
+
   card.innerHTML = `
     <div class="game-cover" style="position: relative;">
       ${cover}
+      <button class="game-info-btn" onclick="showGameInfo(event, ${game.id})" title="Game info">ℹ️</button>
+      ${yearBadge}
     </div>
     <div class="game-title">${game.title}</div>
     <div class="game-meta">${game.genre || "Unknown genre"}</div>
@@ -2284,11 +2550,56 @@ function createGameCard(game, consoleName) {
   `;
 
   // Make the entire card clickable to open game detail
-  card.addEventListener("click", () => {
+  card.addEventListener("click", (e) => {
+    if (e.target.closest('.game-info-btn')) return;
     openGameDetail(game.id);
   });
 
   return card;
+}
+
+async function showGameInfo(event, gameId) {
+  event.stopPropagation();
+
+  // Remove any existing popup
+  const existing = document.querySelector('.game-info-popup');
+  if (existing) existing.remove();
+
+  try {
+    const game = await apiCall(`/games/${gameId}`);
+    const popup = document.createElement("div");
+    popup.className = "game-info-popup";
+
+    let html = '';
+    if (game.release_year) html += `<div class="info-row"><span class="info-label">Year:</span> ${game.release_year}</div>`;
+    if (game.developer) html += `<div class="info-row"><span class="info-label">Developer:</span> ${game.developer}</div>`;
+    if (game.publisher) html += `<div class="info-row"><span class="info-label">Publisher:</span> ${game.publisher}</div>`;
+    if (game.genre) html += `<div class="info-row"><span class="info-label">Genre:</span> ${game.genre}</div>`;
+    if (!html) html = '<div class="info-row" style="color: var(--text-muted);">No metadata available</div>';
+
+    popup.innerHTML = html;
+
+    // Position near click
+    const rect = event.target.getBoundingClientRect();
+    popup.style.position = "fixed";
+    popup.style.left = `${rect.left}px`;
+    popup.style.top = `${rect.bottom + 4}px`;
+    popup.style.zIndex = "10000";
+
+    document.body.appendChild(popup);
+
+    // Close on click outside
+    setTimeout(() => {
+      document.addEventListener("click", function closePopup(e) {
+        if (!popup.contains(e.target) && !e.target.closest('.game-info-btn')) {
+          popup.remove();
+          document.removeEventListener("click", closePopup);
+        }
+      });
+    }, 100);
+  } catch (e) {
+    console.warn("Failed to load game info:", e);
+  }
 }
 
 function renderSearchResults(games) {
@@ -2480,6 +2791,10 @@ function loadPageState() {
       view: 'series',
       seriesId: parseInt(savedSeriesId)
     };
+  }
+
+  if (savedView === 'series-list') {
+    return { view: 'series-list' };
   }
   
   return { view: 'homepage' };
@@ -3071,7 +3386,6 @@ async function loadInitialData() {
 
   // Load series
   await loadSeries();
-  loadSeriesListState();
 
   // Check for saved page state
   const savedState = loadPageState();
@@ -3099,6 +3413,11 @@ async function loadInitialData() {
       await selectSeries(savedState.seriesId);
       return;
     }
+  }
+
+  if (savedState.view === 'series-list') {
+    showSeriesListView();
+    return;
   }
   
   // Default: show homepage

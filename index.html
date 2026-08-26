@@ -61,6 +61,27 @@
           </ul>
         </div>
 
+        <!-- Game Detail Filters -->
+        <div id="detail-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
+          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleDetailFilter()">
+            🎮 Game Details <span id="detail-filter-toggle-icon">▶</span>
+          </h3>
+          <div id="detail-filter-content" style="display: none;">
+            <div class="detail-filter-group">
+              <h4 onclick="toggleDetailFilterGroup('decade')" style="cursor:pointer; margin: 8px 0 4px; font-size: 0.85rem; color: var(--text-primary);">Decades <span id="decade-toggle-icon">▶</span></h4>
+              <ul id="decade-filter-list" class="detail-filter-list" style="list-style: none; padding: 0; margin: 0; display: none;"></ul>
+            </div>
+            <div class="detail-filter-group">
+              <h4 onclick="toggleDetailFilterGroup('developer')" style="cursor:pointer; margin: 8px 0 4px; font-size: 0.85rem; color: var(--text-primary);">Developer <span id="developer-toggle-icon">▶</span></h4>
+              <ul id="developer-filter-list" class="detail-filter-list" style="list-style: none; padding: 0; margin: 0; display: none;"></ul>
+            </div>
+            <div class="detail-filter-group">
+              <h4 onclick="toggleDetailFilterGroup('publisher')" style="cursor:pointer; margin: 8px 0 4px; font-size: 0.85rem; color: var(--text-primary);">Publisher <span id="publisher-toggle-icon">▶</span></h4>
+              <ul id="publisher-filter-list" class="detail-filter-list" style="list-style: none; padding: 0; margin: 0; display: none;"></ul>
+            </div>
+          </div>
+        </div>
+
         <!-- Status Filter -->
         <div id="status-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
           <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleStatusFilter()">🎯 Status <span id="status-toggle-icon">▶</span></h3>
@@ -87,13 +108,12 @@
 
         <!-- Series -->
         <div id="series-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleSeriesList()">
-            📚 Series <span id="series-toggle-icon">▶</span>
-          </h3>
-          <button onclick="openSeriesCreateView()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;display:none;" id="btn-create-series">+ New Series</button>
-          <ul id="series-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
-            <!-- Filled by JS -->
-          </ul>
+          <button onclick="showSeriesListView()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;">
+            📚 Series
+          </button>
+          <button onclick="openSeriesCreateView()" class="secondary" style="width:100%;font-size:0.8rem;">
+            + New Series
+          </button>
         </div>
       </aside>
 
@@ -146,6 +166,14 @@
             <h2>Last Added</h2>
             <div class="recently-viewed-list" id="last-added-list">
               <p class="no-items">No recently added games</p>
+            </div>
+          </div>
+
+          <!-- My Series -->
+          <div class="homepage-section" id="my-series-section" style="display: none;">
+            <h2>📚 My Series</h2>
+            <div class="recently-viewed-list" id="my-series-list">
+              <p class="no-items">No series yet</p>
             </div>
           </div>
           
@@ -219,6 +247,23 @@
         <!-- Game list -->
         <section class="game-list" id="game-list">
           <!-- Game cards injected here -->
+        </section>
+
+        <!-- SERIES LIST VIEW (hidden by default) -->
+        <section id="series-list-view" class="hidden">
+          <div class="series-list-header">
+            <h2>📚 Series</h2>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <select id="series-group-select" class="series-sort-dropdown" onchange="groupSeriesView(this.value)">
+                <option value="all">All Series</option>
+                <option value="genre">By Genre</option>
+              </select>
+              <button class="secondary" onclick="openSeriesCreateView()">+ New Series</button>
+            </div>
+          </div>
+          <div id="series-grid" class="game-list">
+            <!-- Series cards appear here -->
+          </div>
         </section>
 
         <!-- SERIES CREATE VIEW (hidden by default) -->

@@ -281,6 +281,9 @@ class GameResponse(BaseModel):
     screenshots: List[ScreenshotResponse] = []
     is_completed: bool = False
     is_printed: bool = False
+    release_year: Optional[int] = None
+    publisher: Optional[str] = None
+    developer: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -358,6 +361,9 @@ class SearchResultGame(BaseModel):
     console_name: str
     is_completed: bool = False
     is_printed: bool = False
+    release_year: Optional[int] = None
+    publisher: Optional[str] = None
+    developer: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -661,6 +667,61 @@ def init_db():
                     (db_key, env_val),
                 )
                 logger.info(f"Seeded {db_key} from environment/.env")
+
+    # --- Migration: add release_year, publisher, developer to games ---
+    games_cols = [r[1] for r in cur.execute("PRAGMA table_info(games)").fetchall()]
+    if "release_year" not in games_cols:
+        cur.execute("ALTER TABLE games ADD COLUMN release_year INTEGER")
+        logger.info("Migration: added games.release_year column")
+    if "publisher" not in games_cols:
+        cur.execute("ALTER TABLE games ADD COLUMN publisher TEXT")
+        logger.info("Migration: added games.publisher column")
+    if "developer" not in games_cols:
+        cur.execute("ALTER TABLE games ADD COLUMN developer TEXT")
+        logger.info("Migration: added games.developer column")
+
+    # --- Backfill release_year/publisher/developer from metadata JSON files ---
+    backfill_rows = cur.execute(
+        "SELECT id, metadata_json FROM games WHERE release_year IS NULL AND metadata_json IS NOT NULL"
+    ).fetchall()
+    if backfill_rows:
+        logger.info(f"Backfilling metadata for {len(backfill_rows)} games from JSON files...")
+        backfilled = 0
+        for row in backfill_rows:
+            meta_path = row["metadata_json"]
+            if not meta_path:
+                continue
+            meta_full = os.path.join(BASE_DIR, meta_path.lstrip("/"))
+            if not os.path.isfile(meta_full):
+                continue
+            try:
+                with open(meta_full) as f:
+                    meta = json.load(f)
+                release_year = None
+                publisher = None
+                developer = None
+                released = meta.get("released", "")
+                if released:
+                    try:
+                        release_year = int(released.split("-")[0])
+                    except (ValueError, IndexError):
+                        pass
+                pubs = meta.get("publishers") or []
+                if pubs:
+                    publisher = ", ".join(p.get("name", "") for p in pubs if p.get("name"))
+                devs = meta.get("developers") or []
+                if devs:
+                    developer = ", ".join(d.get("name", "") for d in devs if d.get("name"))
+                if release_year or publisher or developer:
+                    cur.execute(
+                        "UPDATE games SET release_year = COALESCE(?, release_year), publisher = COALESCE(?, publisher), developer = COALESCE(?, developer) WHERE id = ?;",
+                        (release_year, publisher, developer, row["id"]),
+                    )
+                    backfilled += 1
+            except Exception:
+                pass
+        if backfilled:
+            logger.info(f"Backfilled metadata for {backfilled} games")
 
     # --- Migration: consoles.slug column + pairing with canonical catalog ---
     existing_cols = [r[1] for r in cur.execute("PRAGMA table_info(consoles)").fetchall()]
@@ -2105,7 +2166,8 @@ def search_games(q: str = Query(..., description="Search query")):
         
         search_term = f"%{q}%"
         cur.execute("""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             WHERE g.title LIKE ?
@@ -2121,7 +2183,10 @@ def search_games(q: str = Query(..., description="Search query")):
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
-            console_name=r["console_name"]
+            console_name=r["console_name"],
+            release_year=r["release_year"],
+            publisher=r["publisher"],
+            developer=r["developer"],
         ) for r in rows]
     except Exception as e:
         logger.error(f"Search failed: {e}")
@@ -2155,7 +2220,8 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
         cur.execute(f"""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
                    COALESCE(gs.is_completed, 0) as is_completed,
-                   COALESCE(gs.is_printed, 0) as is_printed
+                   COALESCE(gs.is_printed, 0) as is_printed,
+                   g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -2174,6 +2240,9 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
             console_name=r["console_name"],
             is_completed=bool(r["is_completed"]),
             is_printed=bool(r["is_printed"]),
+            release_year=r["release_year"],
+            publisher=r["publisher"],
+            developer=r["developer"],
         ) for r in rows]
     except HTTPException:
         raise
@@ -2213,7 +2282,8 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
         cur.execute(f"""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
                    COALESCE(gs.is_completed, 0) as is_completed,
-                   COALESCE(gs.is_printed, 0) as is_printed
+                   COALESCE(gs.is_printed, 0) as is_printed,
+                   g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -2232,6 +2302,9 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
             console_name=r["console_name"],
             is_completed=bool(r["is_completed"]),
             is_printed=bool(r["is_printed"]),
+            release_year=r["release_year"],
+            publisher=r["publisher"],
+            developer=r["developer"],
         ) for r in rows]
     except HTTPException:
         raise
@@ -2249,7 +2322,8 @@ def get_game_detail(game_id: int):
         cur.execute(
             """
             SELECT id, folder_name, title, genre, description, cover_url, 
-                   metadata_json, created_at, updated_at
+                   metadata_json, created_at, updated_at,
+                   release_year, publisher, developer
             FROM games
             WHERE id = ?;
             """,
@@ -2277,6 +2351,9 @@ def get_game_detail(game_id: int):
             metadata_json=row["metadata_json"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            release_year=row["release_year"],
+            publisher=row["publisher"],
+            developer=row["developer"],
         )
     except HTTPException:
         raise
@@ -2413,7 +2490,25 @@ def fetch_metadata_for_single_game(game_id: int):
 
         local_meta = save_metadata_json(gid, rawg_game) if rawg_game else None
 
-        # Update DB
+        # Extract publisher/developer/release_year from RAWG data (smart: only fill NULLs)
+        new_release_year = None
+        new_publisher = None
+        new_developer = None
+        if rawg_game:
+            released = rawg_game.get("released", "")
+            if released:
+                try:
+                    new_release_year = int(released.split("-")[0])
+                except (ValueError, IndexError):
+                    pass
+            pubs = rawg_game.get("publishers") or []
+            if pubs:
+                new_publisher = ", ".join(p.get("name", "") for p in pubs if p.get("name"))
+            devs = rawg_game.get("developers") or []
+            if devs:
+                new_developer = ", ".join(d.get("name", "") for d in devs if d.get("name"))
+
+        # Update DB (smart: only overwrite NULL fields)
         cur.execute(
             """
             UPDATE games
@@ -2421,10 +2516,13 @@ def fetch_metadata_for_single_game(game_id: int):
                 genre = ?,
                 description = ?,
                 metadata_json = ?,
+                release_year = COALESCE(?, release_year),
+                publisher = COALESCE(?, publisher),
+                developer = COALESCE(?, developer),
                 updated_at = ?
             WHERE id = ?;
             """,
-            (new_genre, new_desc, local_meta, now, gid),
+            (new_genre, new_desc, local_meta, new_release_year, new_publisher, new_developer, now, gid),
         )
 
         conn.commit()
@@ -2741,7 +2839,25 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
 
             local_meta = save_metadata_json(gid, rawg_game) if rawg_game else None
 
-            # Update DB
+            # Extract publisher/developer/release_year from RAWG data (smart: only fill NULLs)
+            new_release_year = None
+            new_publisher = None
+            new_developer = None
+            if rawg_game:
+                released = rawg_game.get("released", "")
+                if released:
+                    try:
+                        new_release_year = int(released.split("-")[0])
+                    except (ValueError, IndexError):
+                        pass
+                pubs = rawg_game.get("publishers") or []
+                if pubs:
+                    new_publisher = ", ".join(p.get("name", "") for p in pubs if p.get("name"))
+                devs = rawg_game.get("developers") or []
+                if devs:
+                    new_developer = ", ".join(d.get("name", "") for d in devs if d.get("name"))
+
+            # Update DB (smart: only overwrite NULL fields)
             cur.execute(
                 """
                 UPDATE games
@@ -2749,10 +2865,13 @@ def fetch_metadata_for_console(cid: int, force: bool = Query(False), letter: str
                     genre = ?,
                     description = ?,
                     metadata_json = ?,
+                    release_year = COALESCE(?, release_year),
+                    publisher = COALESCE(?, publisher),
+                    developer = COALESCE(?, developer),
                     updated_at = ?
                 WHERE id = ?;
                 """,
-                (new_genre, new_desc, local_meta, datetime.utcnow().isoformat(), gid),
+                (new_genre, new_desc, local_meta, new_release_year, new_publisher, new_developer, datetime.utcnow().isoformat(), gid),
             )
 
             updated += 1
@@ -4227,6 +4346,7 @@ class SeriesResponse(SeriesBase):
     id: int
     game_count: int = 0
     created_at: str
+    cover_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -4501,7 +4621,10 @@ def get_series():
         cur = conn.cursor()
         cur.execute("""
             SELECT s.id, s.name, s.genre, s.created_at,
-                   COUNT(sg.id) as game_count
+                   COUNT(sg.id) as game_count,
+                   (SELECT sg2.cover_url FROM series_games sg2 
+                    WHERE sg2.series_id = s.id AND sg2.cover_url IS NOT NULL AND sg2.cover_url != '' 
+                    ORDER BY RANDOM() LIMIT 1) as cover_url
             FROM series s
             LEFT JOIN series_games sg ON s.id = sg.series_id
             GROUP BY s.id
@@ -5149,6 +5272,118 @@ def search_wikipedia_series(series_name: str):
         raise HTTPException(status_code=500, detail="Wikipedia search failed")
 
 # -------------------------------------------------------------------
+# API: Series Metadata Fetch
+# -------------------------------------------------------------------
+
+@app.get("/api/series/{series_id}/fetch-metadata")
+def fetch_series_metadata(series_id: int):
+    """Fetch release_year for series games from their metadata JSON files or RAWG."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute("""
+            SELECT sg.id, sg.game_id, sg.title, sg.release_year, g.metadata_json
+            FROM series_games sg
+            LEFT JOIN games g ON sg.game_id = g.id
+            WHERE sg.series_id = ? AND sg.release_year IS NULL;
+        """, (series_id,))
+        rows = cur.fetchall()
+
+        updated = 0
+        for r in rows:
+            release_year = None
+
+            # Try reading from metadata JSON file first
+            if r["metadata_json"]:
+                meta_full = os.path.join(BASE_DIR, r["metadata_json"].lstrip("/"))
+                if os.path.isfile(meta_full):
+                    try:
+                        with open(meta_full) as f:
+                            meta = json.load(f)
+                        released = meta.get("released", "")
+                        if released:
+                            release_year = int(released.split("-")[0])
+                    except Exception:
+                        pass
+
+            # Fallback: search RAWG by title
+            if release_year is None:
+                try:
+                    rawg_game = fetch_rawg_game(r["title"])
+                    if rawg_game:
+                        released = rawg_game.get("released", "")
+                        if released:
+                            release_year = int(released.split("-")[0])
+                except Exception:
+                    pass
+
+            if release_year is not None:
+                cur.execute(
+                    "UPDATE series_games SET release_year = ? WHERE id = ?;",
+                    (release_year, r["id"]),
+                )
+                updated += 1
+
+        conn.commit()
+        conn.close()
+        return {"updated": updated}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch series metadata: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch series metadata")
+
+# -------------------------------------------------------------------
+# API: Metadata Filters
+# -------------------------------------------------------------------
+
+@app.get("/api/metadata-filters")
+def get_metadata_filters():
+    """Get distinct decade, developer, publisher values for filtering."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Decades
+        decades = {}
+        for row in cur.execute("SELECT release_year FROM games WHERE release_year IS NOT NULL").fetchall():
+            decade = f"{(row['release_year'] // 10) * 10}s"
+            decades[decade] = decades.get(decade, 0) + 1
+
+        # Developers
+        developers = {}
+        for row in cur.execute("SELECT developer FROM games WHERE developer IS NOT NULL AND developer != ''").fetchall():
+            for dev in row["developer"].split(","):
+                dev = dev.strip()
+                if dev:
+                    developers[dev] = developers.get(dev, 0) + 1
+
+        # Publishers
+        publishers = {}
+        for row in cur.execute("SELECT publisher FROM games WHERE publisher IS NOT NULL AND publisher != ''").fetchall():
+            for pub in row["publisher"].split(","):
+                pub = pub.strip()
+                if pub:
+                    publishers[pub] = publishers.get(pub, 0) + 1
+
+        conn.close()
+
+        return {
+            "decades": [{"value": k, "count": v} for k, v in sorted(decades.items(), reverse=True)],
+            "developers": [{"value": k, "count": v} for k, v in sorted(developers.items(), key=lambda x: -x[1])],
+            "publishers": [{"value": k, "count": v} for k, v in sorted(publishers.items(), key=lambda x: -x[1])],
+        }
+    except Exception as e:
+        logger.error(f"Failed to get metadata filters: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get metadata filters")
+
+# -------------------------------------------------------------------
 # API: Archive Stats
 # -------------------------------------------------------------------
 
@@ -5408,6 +5643,7 @@ def get_recently_viewed(limit: int = Query(5, ge=1, le=20)):
         
         cur.execute("""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   g.release_year, g.publisher, g.developer,
                    r.viewed_at
             FROM recently_viewed r
             JOIN games g ON r.game_id = g.id
@@ -5424,7 +5660,10 @@ def get_recently_viewed(limit: int = Query(5, ge=1, le=20)):
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
-            console_name=r["console_name"]
+            console_name=r["console_name"],
+            release_year=r["release_year"],
+            publisher=r["publisher"],
+            developer=r["developer"],
         ) for r in rows]
     except Exception as e:
         logger.error(f"Failed to get recently viewed: {e}")
@@ -5442,7 +5681,8 @@ def get_recently_added(limit: int = Query(10, ge=1, le=50)):
         cur = conn.cursor()
         
         cur.execute("""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             ORDER BY g.created_at DESC
@@ -5457,7 +5697,10 @@ def get_recently_added(limit: int = Query(10, ge=1, le=50)):
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
-            console_name=r["console_name"]
+            console_name=r["console_name"],
+            release_year=r["release_year"],
+            publisher=r["publisher"],
+            developer=r["developer"],
         ) for r in rows]
     except Exception as e:
         logger.error(f"Failed to get recently added: {e}")
