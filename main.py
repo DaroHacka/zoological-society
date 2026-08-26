@@ -309,6 +309,7 @@ class GameUpdateRequest(BaseModel):
     title: str
     genre: Optional[str] = None
     description: Optional[str] = None
+    release_year: Optional[int] = None
 
 class AddSingleGameRequest(BaseModel):
     title: str
@@ -1614,6 +1615,63 @@ def fetch_wikipedia_description(title: str, console_id: Optional[int] = None, st
         logger.warning(f"Failed to fetch Wikipedia description for '{title}': {e}")
         return None
 
+def fetch_release_year_from_wikipedia(title: str, console_name: str = "") -> Optional[int]:
+    """Cross-check release year via Wikipedia page extract.
+
+    Searches for the game's Wikipedia page and extracts the first 4-digit
+    year (1970-2030) from the intro paragraph.  Returns None on failure.
+    """
+    try:
+        search_url = "https://en.wikipedia.org/w/api.php"
+        queries = []
+        if console_name:
+            queries.append(f'"{title}" ({console_name} video game)')
+        queries.append(f'"{title}" video game')
+        queries.append(f'"{title}" (video game)')
+        queries.append(f'"{title}"')
+
+        page_title = None
+        for q in queries:
+            try:
+                res = requests.get(search_url, params={
+                    "action": "query", "format": "json", "list": "search",
+                    "srsearch": q, "srlimit": 3, "redirects": 1, "utf8": 1,
+                }, timeout=WIKIPEDIA_TIMEOUT, headers=WIKIPEDIA_HEADERS)
+                res.raise_for_status()
+                data = res.json()
+                results = data.get("query", {}).get("search", [])
+                if results:
+                    page_title = results[0]["title"]
+                    break
+            except Exception:
+                continue
+
+        if not page_title:
+            return None
+
+        res = requests.get(search_url, params={
+            "action": "query", "format": "json", "prop": "extracts",
+            "titles": page_title, "exintro": 1, "explaintext": 1, "utf8": 1,
+        }, timeout=WIKIPEDIA_TIMEOUT, headers=WIKIPEDIA_HEADERS)
+        res.raise_for_status()
+        pages = res.json().get("query", {}).get("pages", {})
+        page_id = next(iter(pages))
+        extract = pages[page_id].get("extract", "")
+
+        if not extract:
+            return None
+
+        # Look for year patterns near release context
+        first_500 = extract[:500]
+        for m in re.finditer(r"(\d{4})", first_500):
+            y = int(m.group(1))
+            if 1970 <= y <= 2030:
+                return y
+        return None
+    except Exception as e:
+        logger.debug(f"Wikipedia year check failed for '{title}': {e}")
+        return None
+
 def get_console_name_for_platform(console_id: int) -> Optional[str]:
     """Get a clean console name for RAWG platform search"""
     console_names = {
@@ -2104,6 +2162,7 @@ def get_games(cid: int):
         cur.execute(
             """
             SELECT g.id, g.folder_name, g.title, g.genre, g.description, g.cover_url,
+                   g.release_year,
                    COALESCE(gs.is_completed, 0) as is_completed,
                    COALESCE(gs.is_printed, 0) as is_printed
             FROM games g
@@ -2145,6 +2204,7 @@ def get_games(cid: int):
                 screenshots=screenshots_map.get(r["id"], []),
                 is_completed=bool(r["is_completed"]),
                 is_printed=bool(r["is_printed"]),
+                release_year=r["release_year"],
             ))
         return result
     except HTTPException:
@@ -3897,7 +3957,7 @@ def fetch_cover_for_game(game_id: int, source: str = Query("auto")):
 
 @app.post("/api/games/{game_id}/update")
 def update_game(game_id: int, data: GameUpdateRequest):
-    """Update game title, genre, and description"""
+    """Update game title, genre, description, and release_year"""
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -3932,10 +3992,10 @@ def update_game(game_id: int, data: GameUpdateRequest):
         _exec_write(cur,
             """
             UPDATE games
-            SET title = ?, genre = ?, description = ?, updated_at = ?
+            SET title = ?, genre = ?, description = ?, release_year = COALESCE(?, release_year), updated_at = ?
             WHERE id = ?;
             """,
-            (title, genre or None, description or None, now, game_id),
+            (title, genre or None, description or None, data.release_year, now, game_id),
         )
 
         conn.commit()
@@ -4919,6 +4979,39 @@ def remove_game_from_series(series_id: int, entry_id: int):
         logger.error(f"Failed to remove game from series: {e}")
         raise HTTPException(status_code=500, detail="Failed to remove game from series")
 
+class SeriesGameUpdate(BaseModel):
+    release_year: Optional[int] = None
+
+@app.put("/api/series/{series_id}/games/{entry_id}")
+def update_series_game_entry(series_id: int, entry_id: int, data: SeriesGameUpdate):
+    """Update a series game entry (e.g. release_year)"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT id FROM series_games WHERE id = ? AND series_id = ?;",
+            (entry_id, series_id),
+        )
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series game entry not found")
+
+        cur.execute(
+            "UPDATE series_games SET release_year = ? WHERE id = ?;",
+            (data.release_year, entry_id),
+        )
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Updated series game entry {entry_id}: release_year={data.release_year}")
+        return {"status": "ok", "release_year": data.release_year}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update series game entry: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update series game entry")
+
 @app.post("/api/series/{series_id}/games/{entry_id}/add-to-archive")
 def add_missing_game_to_archive(series_id: int, entry_id: int):
     """Add a missing game from a series to the archive.
@@ -5369,7 +5462,7 @@ def search_wikipedia_series(series_name: str):
 
 @app.get("/api/series/{series_id}/fetch-metadata")
 def fetch_series_metadata(series_id: int):
-    """Fetch release_year for series games from their metadata JSON files or RAWG."""
+    """Fetch release_year for series games from their metadata JSON files or RAWG, cross-checked with Wikipedia."""
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -5380,7 +5473,7 @@ def fetch_series_metadata(series_id: int):
             raise HTTPException(status_code=404, detail="Series not found")
 
         cur.execute("""
-            SELECT sg.id, sg.game_id, sg.title, sg.release_year, g.metadata_json
+            SELECT sg.id, sg.game_id, sg.title, sg.release_year, sg.platform, g.metadata_json
             FROM series_games sg
             LEFT JOIN games g ON sg.game_id = g.id
             WHERE sg.series_id = ? AND sg.release_year IS NULL;
@@ -5414,6 +5507,19 @@ def fetch_series_metadata(series_id: int):
                             release_year = int(released.split("-")[0])
                 except Exception:
                     pass
+
+            # Cross-check with Wikipedia
+            wiki_year = None
+            try:
+                wiki_year = fetch_release_year_from_wikipedia(r["title"], r["platform"] or "")
+            except Exception:
+                pass
+
+            if wiki_year and release_year and wiki_year != release_year:
+                logger.info(f"Year mismatch for '{r['title']}': source={release_year}, Wikipedia={wiki_year} — using Wikipedia")
+                release_year = wiki_year
+            elif wiki_year and release_year is None:
+                release_year = wiki_year
 
             if release_year is not None:
                 cur.execute(

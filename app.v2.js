@@ -515,6 +515,7 @@ async function openEditGameModal(gameId) {
   document.getElementById("edit-game-id").value = gameId;
   document.getElementById("edit-game-title").value = game.title || "";
   document.getElementById("edit-game-genre").value = game.genre || "";
+  document.getElementById("edit-game-year").value = game.release_year || "";
   document.getElementById("edit-game-description").value = game.description || "";
   
   // Load and set status checkboxes
@@ -560,6 +561,8 @@ async function onSaveGameEdit() {
   const gameId = parseInt(document.getElementById("edit-game-id").value);
   const title = document.getElementById("edit-game-title").value.trim();
   const genre = document.getElementById("edit-game-genre").value.trim();
+  const yearVal = document.getElementById("edit-game-year").value.trim();
+  const release_year = yearVal ? parseInt(yearVal) : null;
   const description = document.getElementById("edit-game-description").value.trim();
 
   if (!gameId || !title) {
@@ -570,7 +573,7 @@ async function onSaveGameEdit() {
   try {
     const result = await apiCall(`/games/${gameId}/update`, {
       method: "POST",
-      body: JSON.stringify({ title, genre, description }),
+      body: JSON.stringify({ title, genre, description, release_year }),
     });
 
     // Save status
@@ -1665,7 +1668,7 @@ function renderSeriesDetail() {
       <div class="game-title">${g.title}</div>
       <div class="game-meta">
         ${(g.console_name || g.platform) ? `<span class="game-console-badge">${g.console_name || g.platform}</span>` : ''}
-        ${g.release_year || ''}
+        <span class="series-year-edit" onclick="editSeriesYear(${g.id}, this)" title="Click to edit year">${g.release_year || '—'}</span>
         <span class="series-card-actions">
           <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'up', event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
           <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === currentSeriesGames.length - 1 ? 'disabled' : ''}>▼</button>
@@ -1715,6 +1718,49 @@ async function addMissingToArchive(entryId, event) {
     btn.disabled = false;
     btn.textContent = "＋";
   }
+}
+
+function editSeriesYear(entryId, el) {
+  event.stopPropagation();
+  const game = currentSeriesGames.find((g) => g.id === entryId);
+  if (!game) return;
+
+  const currentVal = game.release_year || "";
+  const input = document.createElement("input");
+  input.type = "number";
+  input.className = "series-year-input";
+  input.value = currentVal;
+  input.min = "1970";
+  input.max = "2030";
+  input.placeholder = "Year";
+
+  el.replaceWith(input);
+  input.focus();
+  input.select();
+
+  async function save() {
+    const newVal = input.value.trim();
+    const newYear = newVal ? parseInt(newVal) : null;
+
+    if (newYear !== game.release_year) {
+      try {
+        await apiCall(`/series/${currentSeriesId}/games/${entryId}`, {
+          method: "PUT",
+          body: JSON.stringify({ release_year: newYear }),
+        });
+        game.release_year = newYear;
+      } catch (e) {
+        console.error("Failed to update year:", e);
+      }
+    }
+    renderSeriesDetail();
+  }
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); save(); }
+    if (e.key === "Escape") { renderSeriesDetail(); }
+  });
+  input.addEventListener("blur", save);
 }
 
 async function moveSeriesGame(entryId, direction, event) {

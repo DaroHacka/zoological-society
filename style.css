@@ -2554,6 +2554,38 @@ button:disabled {
   opacity: 1;
 }
 
+/* Clickable year in series detail */
+.series-year-edit {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: 3px;
+  transition: background 0.15s, color 0.15s;
+}
+.series-year-edit:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+/* Inline year input in series detail */
+.series-year-input {
+  width: 52px;
+  font-size: 0.75rem;
+  padding: 1px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg-card, #11111c);
+  color: var(--text-main);
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.series-year-input::-webkit-outer-spin-button,
+.series-year-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Series position badge */
 .series-position-badge {
   position: absolute;
