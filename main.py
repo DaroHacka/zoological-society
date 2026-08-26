@@ -5468,7 +5468,7 @@ def search_wikipedia_series(series_name: str):
 
 @app.get("/api/series/{series_id}/fetch-metadata")
 def fetch_series_metadata(series_id: int):
-    """Fetch release_year for series games from metadata JSON files, cross-checked with Wikipedia."""
+    """Fetch release_year for series games from metadata JSON files or RAWG, cross-checked with Wikipedia."""
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -5502,6 +5502,17 @@ def fetch_series_metadata(series_id: int):
                             release_year = int(released.split("-")[0])
                     except Exception:
                         pass
+
+            # Fallback: search RAWG by title
+            if release_year is None:
+                try:
+                    rawg_game = fetch_rawg_game(r["title"])
+                    if rawg_game:
+                        released = rawg_game.get("released", "")
+                        if released:
+                            release_year = int(released.split("-")[0])
+                except Exception:
+                    pass
 
             # Cross-check with Wikipedia
             wiki_year = None

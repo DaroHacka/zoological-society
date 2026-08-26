@@ -2124,6 +2124,7 @@ async function searchInternetForMissing() {
   seriesMissingAll = [];
   seriesMissingSelected = new Set();
   const seenTitles = new Set();
+  const seenRawgIds = new Set();
 
   const progressEl = $("#series-missing-progress");
   const section = $("#series-missing-confirm");
@@ -2139,30 +2140,65 @@ async function searchInternetForMissing() {
   container.innerHTML = "";
   updateMissingCount();
 
-  // Search Wikipedia for missing titles
-  const series = seriesList.find((s) => s.id === currentSeriesId);
-  if (series) {
-    if (progressEl) {
-      progressEl.textContent = `Searching Wikipedia for "${series.name}" titles...`;
-      progressEl.classList.remove("hidden");
-    }
+  let rawgResultCount = 0;
+
+  // Step 1: RAWG expand for covers
+  for (const game of currentSeriesGames) {
+    if (seriesSearchAborted) break;
+    if (!game.game_id) continue;
 
     try {
-      const wikiData = await apiCall(`/series/search-wikipedia/${encodeURIComponent(series.name)}`);
-      if (wikiData && wikiData.games) {
-        for (const g of wikiData.games) {
+      const data = await apiCall(`/series/expand/${game.game_id}`);
+      if (data && data.games) {
+        for (const g of data.games) {
           if (seriesSearchAborted) break;
+          if (g.rawg_id && seenRawgIds.has(g.rawg_id)) continue;
+          if (g.rawg_id) seenRawgIds.add(g.rawg_id);
+
           const titleLower = g.title.toLowerCase();
           if (existingTitles.has(titleLower) || confirmedMissing.has(titleLower) || seenTitles.has(titleLower)) continue;
           seenTitles.add(titleLower);
 
+          g.source = "rawg";
           seriesMissingAll.push(g);
+          rawgResultCount++;
           appendMissingGameCard(g, seriesMissingAll.length - 1);
           updateMissingCount();
         }
       }
     } catch (e) {
-      console.warn("Wikipedia search failed:", e);
+      // RAWG expand not available for this game — silently skip
+    }
+  }
+
+  // Step 2: Wikipedia for additional titles
+  if (!seriesSearchAborted) {
+    const series = seriesList.find((s) => s.id === currentSeriesId);
+    if (series) {
+      if (progressEl) {
+        progressEl.textContent = rawgResultCount > 0
+          ? `Found ${rawgResultCount} titles from RAWG. Searching Wikipedia for more...`
+          : `Searching Wikipedia for "${series.name}" titles...`;
+        progressEl.classList.remove("hidden");
+      }
+
+      try {
+        const wikiData = await apiCall(`/series/search-wikipedia/${encodeURIComponent(series.name)}`);
+        if (wikiData && wikiData.games) {
+          for (const g of wikiData.games) {
+            if (seriesSearchAborted) break;
+            const titleLower = g.title.toLowerCase();
+            if (existingTitles.has(titleLower) || confirmedMissing.has(titleLower) || seenTitles.has(titleLower)) continue;
+            seenTitles.add(titleLower);
+
+            seriesMissingAll.push(g);
+            appendMissingGameCard(g, seriesMissingAll.length - 1);
+            updateMissingCount();
+          }
+        }
+      } catch (e) {
+        console.warn("Wikipedia search failed:", e);
+      }
     }
   }
 
