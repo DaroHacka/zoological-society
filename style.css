@@ -1644,8 +1644,13 @@ button:disabled {
     font-size: 0.95rem;
     padding-right: 36px;
   }
+  .console-icon {
+    left: 12px;
+    width: 20px;
+    height: 20px;
+  }
   #console-list li {
-    padding: 6px 8px 6px 44px;
+    padding: 6px 8px 6px 40px;
     font-size: 0.85rem;
   }
 
