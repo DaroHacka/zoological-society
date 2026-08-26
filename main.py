@@ -4248,7 +4248,7 @@ class SeriesGameEntry(BaseModel):
 
 class SeriesAddGameRequest(BaseModel):
     game_id: Optional[int] = None
-    title: str
+    title: Optional[str] = ""
     cover_url: Optional[str] = None
     platform: Optional[str] = ""
     release_year: Optional[int] = None
@@ -4685,6 +4685,60 @@ def add_game_to_series(series_id: int, data: SeriesAddGameRequest):
     except Exception as e:
         logger.error(f"Failed to add game to series: {e}")
         raise HTTPException(status_code=500, detail="Failed to add game to series")
+
+@app.post("/api/series/{series_id}/games/batch")
+def add_games_to_series_batch(series_id: int, data: SeriesBulkAddRequest):
+    """Add multiple games to a series in one transaction"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM series WHERE id = ?;", (series_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Series not found")
+
+        cur.execute("SELECT COALESCE(MAX(position), 0) FROM series_games WHERE series_id = ?;", (series_id,))
+        next_pos = cur.fetchone()[0]
+
+        added = 0
+        for g in data.games:
+            next_pos += 1
+            is_missing = 0
+            title = g.title
+            cover_url = g.cover_url
+            game_id = g.game_id
+
+            if game_id:
+                cur.execute("SELECT id, title, cover_url FROM games WHERE id = ?;", (game_id,))
+                game_row = cur.fetchone()
+                if game_row:
+                    if not title:
+                        title = game_row["title"]
+                    if not cover_url:
+                        cover_url = game_row["cover_url"]
+                    is_missing = 0
+                else:
+                    is_missing = 1
+            else:
+                is_missing = 1 if g.is_missing else 0
+
+            cur.execute(
+                """INSERT INTO series_games (series_id, game_id, position, title, cover_url, platform, release_year, rawg_id, is_missing)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);""",
+                (series_id, game_id, next_pos, title, cover_url or "", g.platform or "", g.release_year, g.rawg_id, is_missing),
+            )
+            added += 1
+
+        conn.commit()
+        logger.info(f"Batch added {added} games to series {series_id}")
+        conn.close()
+        return {"added": added, "series_id": series_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to batch add games to series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to batch add games to series")
 
 @app.put("/api/series/{series_id}/games/reorder")
 def reorder_series_games(series_id: int, data: SeriesReorderRequest):

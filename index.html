@@ -90,7 +90,7 @@
           <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleSeriesList()">
             📚 Series <span id="series-toggle-icon">▶</span>
           </h3>
-          <button onclick="openCreateSeriesModal()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;display:none;" id="btn-create-series">+ New Series</button>
+          <button onclick="openSeriesCreateView()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;display:none;" id="btn-create-series">+ New Series</button>
           <ul id="series-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <!-- Filled by JS -->
           </ul>
@@ -219,6 +219,64 @@
         <!-- Game list -->
         <section class="game-list" id="game-list">
           <!-- Game cards injected here -->
+        </section>
+
+        <!-- SERIES CREATE VIEW (hidden by default) -->
+        <section id="series-create-view" class="hidden">
+          <div class="series-create-header">
+            <h2>Create New Series</h2>
+            <button class="secondary" onclick="cancelSeriesCreate()">← Back</button>
+          </div>
+          <div class="series-create-form">
+            <label>Series Name
+              <input type="text" id="series-create-name" placeholder="e.g., Final Fantasy" oninput="onSeriesCreateNameInput()" />
+            </label>
+            <label>Genre (optional)
+              <input type="text" id="series-create-genre" placeholder="RPG, Action, Adventure..." autocomplete="off" />
+            </label>
+          </div>
+          <p id="series-create-hint" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">
+            Type a series name to search your archive for matching games:
+          </p>
+          <div id="series-create-results" class="game-list">
+            <!-- Matching archive games appear here -->
+          </div>
+          <div class="series-create-actions">
+            <button id="btn-series-create-confirm" onclick="confirmSeriesCreate()" disabled>
+              Create Series with Selected Games (<span id="series-create-count">0</span>)
+            </button>
+          </div>
+        </section>
+
+        <!-- SERIES DETAIL VIEW (hidden by default) -->
+        <section id="series-detail-view" class="hidden">
+          <div class="series-detail-header">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <button class="secondary" onclick="goToHomepage()">← Back</button>
+              <h2 id="series-detail-title" style="margin: 0;"></h2>
+              <span id="series-detail-count" class="series-count-badge"></span>
+            </div>
+            <div class="series-detail-actions">
+              <button class="secondary" onclick="searchInternetForMissing()">🔍 Search Internet for Missing Titles</button>
+              <button class="secondary" style="color: #ff6b6b;" onclick="deleteSeriesFromDetail()">🗑️ Delete Series</button>
+            </div>
+          </div>
+          <div id="series-detail-games" class="game-list">
+            <!-- Game cards with position numbers and reorder arrows -->
+          </div>
+          <div id="series-missing-confirm" class="hidden">
+            <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+              <h3 style="color: var(--accent); margin-bottom: 8px;">🔍 Missing Titles Found</h3>
+              <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">These games were found on RAWG but are not in your archive. Confirm to add them to this series:</p>
+              <div id="series-missing-games-list" class="game-list">
+                <!-- Missing game cards -->
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button onclick="confirmAllMissingGames()">✅ Add All Missing Games</button>
+                <button class="secondary" onclick="dismissMissingGames()">Dismiss</button>
+              </div>
+            </div>
+          </div>
         </section>
 
       </main>
@@ -590,94 +648,6 @@ Spyro the Dragon"></textarea>
       <div class="modal-actions">
         <button onclick="closeCreateCollectionModal()">Cancel</button>
         <button id="btn-create-collection-confirm" onclick="confirmCreateCollection()">Create</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Create Series Modal -->
-  <div class="modal hidden" id="modal-create-series">
-    <div class="modal-content">
-      <h2>Create Series</h2>
-      <label>
-        Series Name
-        <input type="text" id="create-series-name" placeholder="e.g., Final Fantasy" />
-      </label>
-      <label>
-        Genre (optional)
-        <input type="text" id="create-series-genre" placeholder="RPG, Action, Adventure..." autocomplete="off" />
-      </label>
-      <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
-      <p style="margin: 0 0 12px; font-size: 0.9rem; color: var(--text-muted);">Add games from your archive to this series:</p>
-      <div id="series-game-list" style="max-height: 300px; overflow-y: auto; margin-bottom: 12px;">
-        <p style="color: var(--text-muted); font-size: 0.85rem;">No games added yet. Use "Expand from Game" to populate from RAWG.</p>
-      </div>
-      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-        <button class="secondary" onclick="openSeriesExpandModal()" style="flex: 1;">🔍 Expand from Game</button>
-        <button class="secondary" onclick="openSeriesAddManualModal()" style="flex: 1;">➕ Add Manually</button>
-      </div>
-      <div class="modal-actions">
-        <button onclick="closeCreateSeriesModal()">Cancel</button>
-        <button id="btn-create-series-confirm" onclick="confirmCreateSeries()">Create Series</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Expand Series from RAWG Modal -->
-  <div class="modal hidden" id="modal-expand-series">
-    <div class="modal-content">
-      <h2>Expand Series from RAWG</h2>
-      <p style="margin: 0 0 12px; font-size: 0.9rem; color: var(--text-muted);">Select a game from your archive to find all games in its series:</p>
-      <label>
-        Search Games
-        <input type="text" id="series-expand-search" placeholder="Type to search your archive..." oninput="searchGamesForSeriesExpand()" />
-      </label>
-      <div id="series-expand-results" style="max-height: 300px; overflow-y: auto; margin: 12px 0;">
-        <p style="color: var(--text-muted); font-size: 0.85rem;">Type to search...</p>
-      </div>
-      <div class="modal-actions">
-        <button onclick="closeSeriesExpandModal()">Cancel</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Series Expand Results Modal -->
-  <div class="modal hidden" id="modal-series-expand-results">
-    <div class="modal-content">
-      <h2>Games in Series</h2>
-      <p id="series-expand-source-info" style="margin: 0 0 12px; font-size: 0.9rem; color: var(--text-muted);"></p>
-      <div id="series-expand-games-list" style="max-height: 400px; overflow-y: auto; margin-bottom: 12px;">
-        <!-- Filled by JS -->
-      </div>
-      <div class="modal-actions">
-        <button onclick="closeSeriesExpandResultsModal()">Cancel</button>
-        <button onclick="confirmSeriesExpandAdd()">Add Selected to Series</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Manual Add Game to Series Modal -->
-  <div class="modal hidden" id="modal-series-add-manual">
-    <div class="modal-content">
-      <h2>Add Game to Series</h2>
-      <label>
-        Game Title
-        <input type="text" id="series-manual-title" placeholder="Enter game title..." />
-      </label>
-      <label>
-        Platform (optional)
-        <input type="text" id="series-manual-platform" placeholder="e.g., PlayStation 1" />
-      </label>
-      <label>
-        Release Year (optional)
-        <input type="number" id="series-manual-year" placeholder="e.g., 1997" />
-      </label>
-      <label>
-        Cover URL (optional)
-        <input type="text" id="series-manual-cover" placeholder="https://example.com/cover.jpg" />
-      </label>
-      <div class="modal-actions">
-        <button onclick="closeSeriesAddManualModal()">Cancel</button>
-        <button onclick="confirmSeriesAddManual()">Add Game</button>
       </div>
     </div>
   </div>

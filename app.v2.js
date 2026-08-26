@@ -58,8 +58,7 @@ let currentCollectionGames = [];
 let seriesList = [];
 let currentSeriesId = null;
 let currentSeriesGames = [];
-let pendingSeriesGames = []; // Games being added during creation
-let expandResultsGames = []; // RAWG expand results
+// (Series state managed locally within functions)
 
 // Genre filter state
 let genres = [];
@@ -1471,205 +1470,115 @@ function loadSeriesListState() {
   }
 }
 
-function openCreateSeriesModal() {
-  document.getElementById("create-series-name").value = "";
-  document.getElementById("create-series-genre").value = "";
-  pendingSeriesGames = [];
-  renderPendingSeriesGames();
-  toggleModal("#modal-create-series", true);
+// --- Series Creation (Full Page) ---
+
+let seriesCreateSelected = [];
+
+function openSeriesCreateView() {
+  currentView = 'series-create';
+  seriesCreateSelected = [];
+
+  $("#homepage").classList.add("hidden");
+  $("#search-results").classList.add("hidden");
+  $(".console-summary").style.display = "none";
+  $(".alpha-index").style.display = "none";
+  $(".metadata-actions").style.display = "none";
+  $("#game-list").style.display = "none";
+  $("#series-detail-view").classList.add("hidden");
+  $("#series-create-view").classList.remove("hidden");
+
+  $("#series-create-name").value = "";
+  $("#series-create-genre").value = "";
+  $("#series-create-results").innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Type a series name to search your archive for matching games:</p>';
+  updateSeriesCreateCount();
 }
 
-function closeCreateSeriesModal() {
-  toggleModal("#modal-create-series", false);
-  pendingSeriesGames = [];
+function cancelSeriesCreate() {
+  $("#series-create-view").classList.add("hidden");
+  currentView = 'homepage';
+  renderHomepage();
 }
 
-function renderPendingSeriesGames() {
-  const container = document.getElementById("series-game-list");
-  if (!container) return;
+let seriesCreateSearchTimeout = null;
 
-  if (pendingSeriesGames.length === 0) {
-    container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">No games added yet. Use "Expand from Game" to populate from RAWG.</p>';
-    return;
-  }
+function onSeriesCreateNameInput() {
+  const query = $("#series-create-name").value.trim();
+  const container = $("#series-create-results");
 
-  container.innerHTML = pendingSeriesGames.map((g, idx) => `
-    <div class="series-game-entry" style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius); background: var(--card-bg); margin-bottom: 4px;">
-      <span style="color: var(--text-muted); font-size: 0.8rem; min-width: 20px;">${idx + 1}</span>
-      ${g.cover_url ? `<img src="${toAbsoluteUrl(g.cover_url)}" alt="" style="width: 30px; height: 45px; object-fit: cover; border-radius: 4px;" />` : '<div style="width: 30px; height: 45px; background: var(--border-subtle); border-radius: 4px;"></div>'}
-      <div style="flex: 1; min-width: 0;">
-        <div style="font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${g.title}</div>
-        <div style="font-size: 0.75rem; color: var(--text-muted);">${g.platform || ''} ${g.release_year || ''}</div>
-      </div>
-      <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; ${g.is_missing ? 'background: rgba(255,68,68,0.2); color: #ff6b6b;' : 'background: rgba(68,255,68,0.2); color: #6bffa4;'}">${g.is_missing ? 'Missing' : 'Owned'}</span>
-      <button onclick="removePendingSeriesGame(${idx})" style="background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 0.8rem; padding: 4px;" title="Remove">✕</button>
-    </div>
-  `).join("");
-}
-
-function removePendingSeriesGame(idx) {
-  pendingSeriesGames.splice(idx, 1);
-  renderPendingSeriesGames();
-}
-
-function openSeriesExpandModal() {
-  document.getElementById("series-expand-search").value = "";
-  document.getElementById("series-expand-results").innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Type to search...</p>';
-  toggleModal("#modal-expand-series", true);
-}
-
-function closeSeriesExpandModal() {
-  toggleModal("#modal-expand-series", false);
-}
-
-let seriesExpandSearchTimeout = null;
-
-function searchGamesForSeriesExpand() {
-  const query = document.getElementById("series-expand-search").value.trim();
-  const container = document.getElementById("series-expand-results");
-
-  if (seriesExpandSearchTimeout) clearTimeout(seriesExpandSearchTimeout);
+  if (seriesCreateSearchTimeout) clearTimeout(seriesCreateSearchTimeout);
 
   if (query.length < 2) {
-    container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Type at least 2 characters...</p>';
+    container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Type at least 2 characters to search...</p>';
     return;
   }
 
-  seriesExpandSearchTimeout = setTimeout(async () => {
+  seriesCreateSearchTimeout = setTimeout(async () => {
     try {
       const results = await apiCall(`/games/search?q=${encodeURIComponent(query)}`);
       if (!results || results.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">No games found</p>';
+        container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">No matching games found in your archive.</p>';
         return;
       }
 
-      container.innerHTML = results.slice(0, 20).map(g => `
-        <div class="series-expand-result" onclick="expandSeriesFromGame(${g.id})" style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--radius); cursor: pointer; transition: background 0.2s;">
-          ${g.cover_url ? `<img src="${toAbsoluteUrl(g.cover_url)}" alt="" style="width: 30px; height: 45px; object-fit: cover; border-radius: 4px;" />` : '<div style="width: 30px; height: 45px; background: var(--border-subtle); border-radius: 4px;"></div>'}
-          <div>
-            <div style="font-size: 0.9rem;">${g.title}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted);">${g.console_name || ''}</div>
+      container.innerHTML = "";
+      results.forEach((g) => {
+        const card = document.createElement("article");
+        card.className = "game-card selectable";
+        card.dataset.id = g.id;
+
+        const cover = g.cover_url
+          ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${g.title} cover" />`
+          : `<div class="no-cover">No cover</div>`;
+
+        card.innerHTML = `
+          <div class="game-cover">${cover}</div>
+          <div class="game-title">${g.title}</div>
+          <div class="game-meta">
+            <span class="game-console-badge">${g.console_name}</span>
           </div>
-        </div>
-      `).join("");
+        `;
+
+        card.addEventListener("click", () => {
+          toggleSeriesCreateSelection(g.id, card);
+        });
+
+        container.appendChild(card);
+      });
     } catch (e) {
       container.innerHTML = '<p style="color: #ff6b6b; font-size: 0.85rem;">Search failed</p>';
     }
   }, 300);
 }
 
-async function expandSeriesFromGame(gameId) {
-  closeSeriesExpandModal();
-  showToast("Fetching series from RAWG...", "info");
-
-  try {
-    const data = await apiCall(`/series/expand/${gameId}`);
-    expandResultsGames = data.games || [];
-
-    renderExpandResults();
-  } catch (e) {
-    showToast("Failed to fetch series from RAWG", "error");
+function toggleSeriesCreateSelection(gameId, cardEl) {
+  const idx = seriesCreateSelected.indexOf(gameId);
+  if (idx >= 0) {
+    seriesCreateSelected.splice(idx, 1);
+    cardEl.classList.remove("selected");
+  } else {
+    seriesCreateSelected.push(gameId);
+    cardEl.classList.add("selected");
   }
+  updateSeriesCreateCount();
 }
 
-function renderExpandResults() {
-  const container = document.getElementById("series-expand-games-list");
-  const info = document.getElementById("series-expand-source-info");
-
-  if (expandResultsGames.length === 0) {
-    container.innerHTML = '<p style="color: var(--text-muted);">No games found in this series</p>';
-    info.textContent = "";
-    toggleModal("#modal-series-expand-results", true);
-    return;
-  }
-
-  info.textContent = `Found ${expandResultsGames.length} games in this series:`;
-  container.innerHTML = expandResultsGames.map((g, idx) => `
-    <div class="series-expand-game-entry" style="display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: var(--radius); background: var(--card-bg); margin-bottom: 4px;">
-      <input type="checkbox" id="expand-game-${idx}" ${g.in_archive ? 'checked' : ''} style="cursor: pointer;" />
-      ${g.cover_url ? `<img src="${toAbsoluteUrl(g.cover_url)}" alt="" style="width: 30px; height: 45px; object-fit: cover; border-radius: 4px;" />` : '<div style="width: 30px; height: 45px; background: var(--border-subtle); border-radius: 4px;"></div>'}
-      <div style="flex: 1; min-width: 0;">
-        <div style="font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${g.title}</div>
-        <div style="font-size: 0.75rem; color: var(--text-muted);">${g.platform || ''} ${g.release_year || ''}</div>
-      </div>
-      <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; ${g.in_archive ? 'background: rgba(68,255,68,0.2); color: #6bffa4;' : 'background: rgba(255,68,68,0.2); color: #ff6b6b;'}">${g.in_archive ? 'In Archive' : 'Missing'}</span>
-    </div>
-  `).join("");
-
-  toggleModal("#modal-series-expand-results", true);
+function updateSeriesCreateCount() {
+  const countEl = $("#series-create-count");
+  const btnEl = $("#btn-series-create-confirm");
+  if (countEl) countEl.textContent = seriesCreateSelected.length;
+  if (btnEl) btnEl.disabled = seriesCreateSelected.length === 0;
 }
 
-function closeSeriesExpandResultsModal() {
-  toggleModal("#modal-series-expand-results", false);
-}
-
-function confirmSeriesExpandAdd() {
-  expandResultsGames.forEach((g, idx) => {
-    const cb = document.getElementById(`expand-game-${idx}`);
-    if (cb && cb.checked) {
-      // Check if already in pending
-      const exists = pendingSeriesGames.some(p => p.title.toLowerCase() === g.title.toLowerCase());
-      if (!exists) {
-        pendingSeriesGames.push({
-          game_id: g.archive_game_id || null,
-          title: g.title,
-          cover_url: g.cover_url || "",
-          platform: g.platform || "",
-          release_year: g.release_year,
-          rawg_id: g.rawg_id,
-          is_missing: !g.in_archive,
-        });
-      }
-    }
-  });
-
-  closeSeriesExpandResultsModal();
-  renderPendingSeriesGames();
-  showToast(`Added ${pendingSeriesGames.length} games to pending list`, "success");
-}
-
-function openSeriesAddManualModal() {
-  document.getElementById("series-manual-title").value = "";
-  document.getElementById("series-manual-platform").value = "";
-  document.getElementById("series-manual-year").value = "";
-  document.getElementById("series-manual-cover").value = "";
-  toggleModal("#modal-series-add-manual", true);
-}
-
-function closeSeriesAddManualModal() {
-  toggleModal("#modal-series-add-manual", false);
-}
-
-function confirmSeriesAddManual() {
-  const title = document.getElementById("series-manual-title").value.trim();
-  if (!title) {
-    showToast("Game title is required", "warning");
-    return;
-  }
-
-  const platform = document.getElementById("series-manual-platform").value.trim();
-  const year = document.getElementById("series-manual-year").value.trim();
-  const cover = document.getElementById("series-manual-cover").value.trim();
-
-  pendingSeriesGames.push({
-    title,
-    cover_url: cover || "",
-    platform: platform || "",
-    release_year: year ? parseInt(year) : null,
-    rawg_id: null,
-    is_missing: true,
-  });
-
-  closeSeriesAddManualModal();
-  renderPendingSeriesGames();
-}
-
-async function confirmCreateSeries() {
-  const name = document.getElementById("create-series-name").value.trim();
-  const genre = document.getElementById("create-series-genre").value.trim();
+async function confirmSeriesCreate() {
+  const name = $("#series-create-name").value.trim();
+  const genre = $("#series-create-genre").value.trim();
 
   if (!name) {
     showToast("Series name is required", "warning");
+    return;
+  }
+  if (seriesCreateSelected.length === 0) {
+    showToast("Select at least one game", "warning");
     return;
   }
 
@@ -1680,31 +1589,38 @@ async function confirmCreateSeries() {
       body: JSON.stringify({ name, genre }),
     });
 
-    // Add pending games
-    for (let i = 0; i < pendingSeriesGames.length; i++) {
-      const g = pendingSeriesGames[i];
-      await apiCall(`/series/${series.id}/games`, {
-        method: "POST",
-        body: JSON.stringify({
-          game_id: g.game_id || null,
-          title: g.title,
-          cover_url: g.cover_url,
-          platform: g.platform,
-          release_year: g.release_year,
-          rawg_id: g.rawg_id,
-          is_missing: g.is_missing,
-        }),
-      });
-    }
+    // Batch add all games in one request
+    const gamesPayload = seriesCreateSelected.map((gameId) => ({
+      game_id: gameId,
+      is_missing: false,
+    }));
 
-    seriesList.push({ ...series, game_count: pendingSeriesGames.length });
+    const result = await apiCall(`/series/${series.id}/games/batch`, {
+      method: "POST",
+      body: JSON.stringify({ games: gamesPayload }),
+    });
+
+    seriesList.push({ ...series, game_count: result.added });
     renderSeries();
-    closeCreateSeriesModal();
-    showToast(`Series '${name}' created with ${pendingSeriesGames.length} games!`, "success");
+    showToast(`Series '${name}' created with ${result.added} games!`, "success");
+
+    await selectSeries(series.id);
   } catch (e) {
-    // Error already shown
+    // Check if the series already exists (name collision on retry)
+    try {
+      await loadSeries();
+      const existing = seriesList.find((s) => s.name === name);
+      if (existing) {
+        showToast(`Series '${name}' already exists (${existing.game_count} games). Loading it.`, "info");
+        await selectSeries(existing.id);
+      }
+    } catch (e2) {
+      // Ignore
+    }
   }
 }
+
+// --- Series Detail View ---
 
 async function selectSeries(id) {
   try {
@@ -1715,10 +1631,20 @@ async function selectSeries(id) {
     activeGenreFilter = null;
     activeStatusFilter = null;
     statusFilteredGames = [];
+    currentPage = 1;
 
-    showConsoleView();
+    currentView = 'series';
     savePageState();
-    updateConsoleSummary();
+
+    $("#homepage").classList.add("hidden");
+    $("#search-results").classList.add("hidden");
+    $("#series-create-view").classList.add("hidden");
+    $(".console-summary").style.display = "none";
+    $(".alpha-index").style.display = "none";
+    $(".metadata-actions").style.display = "none";
+    $("#game-list").style.display = "none";
+    $("#series-detail-view").classList.remove("hidden");
+
     renderSeries();
     renderCollections();
     renderConsoles();
@@ -1730,41 +1656,31 @@ async function selectSeries(id) {
       currentSeriesGames = [];
     }
 
-    renderSeriesGames();
+    dismissMissingGames();
+    renderSeriesDetail();
   } catch (e) {
     console.error("selectSeries error:", e);
   }
 }
 
-function renderSeriesGames() {
-  const container = $("#game-list");
-  const titleEl = $("#console-name");
-  if (!container) return;
-
+function renderSeriesDetail() {
   const series = seriesList.find((s) => s.id === currentSeriesId);
-  titleEl.textContent = series ? `📚 ${series.name}` : "Series";
+  if (!series) return;
 
-  const alpha = $("#alpha-index");
-  const meta = $("#metadata-actions");
-  if (alpha) alpha.style.display = "none";
-  if (meta) meta.style.display = "none";
+  $("#series-detail-title").textContent = `📚 ${series.name}`;
+  $("#series-detail-count").textContent = `${currentSeriesGames.length} games`;
 
-  const rescanBtn = $("#btn-rescan-console");
-  const addGameBtn = $("#btn-add-game");
-  if (rescanBtn) rescanBtn.style.display = "none";
-  if (addGameBtn) addGameBtn.style.display = "none";
-
+  const container = $("#series-detail-games");
   container.innerHTML = "";
 
   if (currentSeriesGames.length === 0) {
-    container.innerHTML = '<p>No games in this series.</p>';
+    container.innerHTML = '<p>No games in this series. Click "Search Internet for Missing Titles" to populate it.</p>';
     return;
   }
 
-  currentSeriesGames.forEach((g) => {
+  currentSeriesGames.forEach((g, idx) => {
     const card = document.createElement("article");
     card.className = g.is_missing ? "game-card series-missing" : "game-card";
-    card.dataset.id = g.id;
 
     const cover = g.cover_url
       ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${g.title} cover" />`
@@ -1782,16 +1698,18 @@ function renderSeriesGames() {
       <div class="game-meta">
         ${g.platform ? `<span class="game-console-badge">${g.platform}</span>` : ''}
         ${g.release_year || ''}
-        <button class="series-remove-btn" onclick="removeGameFromSeriesUI(${g.id}, event)" title="Remove from series">✕</button>
+        <span class="series-card-actions">
+          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'up', event)" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
+          <button class="series-reorder-btn" onclick="moveSeriesGame(${g.id}, 'down', event)" title="Move down" ${idx === currentSeriesGames.length - 1 ? 'disabled' : ''}>▼</button>
+          <button class="series-remove-btn" onclick="removeGameFromSeriesUI(${g.id}, event)" title="Remove from series">✕</button>
+        </span>
       </div>
     `;
 
     card.addEventListener("click", (event) => {
-      if (event.target.closest('.series-remove-btn')) return;
+      if (event.target.closest('.series-card-actions')) return;
       if (!g.is_missing && g.game_id) {
         openGameDetail(g.game_id);
-      } else {
-        showSeriesMissingDetail(g);
       }
     });
 
@@ -1799,33 +1717,41 @@ function renderSeriesGames() {
   });
 }
 
-function showSeriesMissingDetail(game) {
-  const modal = $("#modal-game-detail");
-  const content = modal.querySelector(".modal-game-content");
-  content.innerHTML = `
-    <div style="padding: 20px;">
-      <h2>${game.title}</h2>
-      <p style="color: var(--text-muted); margin-bottom: 8px;">This game is not in your archive.</p>
-      <div style="display: flex; gap: 16px; margin-top: 16px;">
-        ${game.cover_url ? `<img src="${toAbsoluteUrl(game.cover_url)}" style="max-width: 200px; border-radius: var(--radius);" />` : ''}
-        <div>
-          <p><strong>Platform:</strong> ${game.platform || 'Unknown'}</p>
-          <p><strong>Release Year:</strong> ${game.release_year || 'Unknown'}</p>
-          <p style="margin-top: 16px; color: var(--accent);">Add this game to your archive to track it!</p>
-        </div>
-      </div>
-      <div class="modal-actions">
-        <button onclick="toggleModal('#modal-game-detail', false)">Close</button>
-      </div>
-    </div>
-  `;
-  toggleModal("#modal-game-detail", true);
+async function moveSeriesGame(entryId, direction, event) {
+  if (event) event.stopPropagation();
+  if (!currentSeriesId) return;
+
+  const idx = currentSeriesGames.findIndex((g) => g.id === entryId);
+  if (idx < 0) return;
+
+  if (direction === "up" && idx > 0) {
+    [currentSeriesGames[idx - 1], currentSeriesGames[idx]] = [currentSeriesGames[idx], currentSeriesGames[idx - 1]];
+  } else if (direction === "down" && idx < currentSeriesGames.length - 1) {
+    [currentSeriesGames[idx], currentSeriesGames[idx + 1]] = [currentSeriesGames[idx + 1], currentSeriesGames[idx]];
+  } else {
+    return;
+  }
+
+  const positions = currentSeriesGames.map((g, i) => ({ id: g.id, position: i + 1 }));
+
+  try {
+    await apiCall(`/series/${currentSeriesId}/games/reorder`, {
+      method: "PUT",
+      body: JSON.stringify({ positions }),
+    });
+    renderSeriesDetail();
+  } catch (e) {
+    showToast("Failed to reorder", "error");
+  }
 }
 
 async function removeGameFromSeriesUI(entryId, event) {
   if (event) event.stopPropagation();
   if (!currentSeriesId) return;
-  if (!confirm("Remove this game from the series?")) return;
+
+  const game = currentSeriesGames.find((g) => g.id === entryId);
+  if (!game) return;
+  if (!confirm(`Remove "${game.title}" from the series?`)) return;
 
   try {
     await apiCall(`/series/${currentSeriesId}/games/${entryId}`, { method: "DELETE" });
@@ -1837,13 +1763,31 @@ async function removeGameFromSeriesUI(entryId, event) {
   }
 }
 
+async function deleteSeriesFromDetail() {
+  if (!currentSeriesId) return;
+  const s = seriesList.find((x) => x.id === currentSeriesId);
+  if (!s) return;
+  if (!confirm(`Delete series '${s.name}'? This will not delete the games themselves.`)) return;
+
+  try {
+    await apiCall(`/series/${currentSeriesId}`, { method: "DELETE" });
+    seriesList = seriesList.filter((x) => x.id !== currentSeriesId);
+    currentSeriesId = null;
+    currentSeriesGames = [];
+    renderSeries();
+    goToHomepage();
+    showToast(`Series '${s.name}' deleted`, "success");
+  } catch (e) {
+    // Error already shown
+  }
+}
+
 async function deleteSeries(id, event) {
   if (event) event.stopPropagation();
 
   const s = seriesList.find((x) => x.id === id);
   if (!s) return;
-
-  if (!confirm(`Delete series '${s.name}'? This will not delete the games themselves.`)) return;
+  if (!confirm(`Delete series '${s.name}'?`)) return;
 
   try {
     await apiCall(`/series/${id}`, { method: "DELETE" });
@@ -1852,7 +1796,7 @@ async function deleteSeries(id, event) {
     if (currentSeriesId === id) {
       currentSeriesId = null;
       currentSeriesGames = [];
-      renderHomepage();
+      goToHomepage();
     }
 
     renderSeries();
@@ -1861,6 +1805,125 @@ async function deleteSeries(id, event) {
   } catch (e) {
     // Error already shown
   }
+}
+
+// --- Internet Search for Missing Titles ---
+
+let seriesMissingGames = [];
+
+async function searchInternetForMissing() {
+  if (!currentSeriesId || currentSeriesGames.length === 0) {
+    showToast("No games in series to search from", "warning");
+    return;
+  }
+
+  showToast("Searching internet for missing titles...", "info");
+
+  const existingTitles = currentSeriesGames.map((g) => g.title.toLowerCase());
+  const confirmedMissing = currentSeriesGames.filter((g) => g.is_missing).map((g) => g.title.toLowerCase());
+
+  const allFound = [];
+  const seenRawgIds = new Set();
+
+  for (const game of currentSeriesGames) {
+    if (!game.game_id || !game.rawg_id) continue;
+
+    try {
+      const data = await apiCall(`/series/expand/${game.game_id}`);
+      if (data && data.games) {
+        for (const g of data.games) {
+          if (seenRawgIds.has(g.rawg_id)) continue;
+          seenRawgIds.add(g.rawg_id);
+
+          const titleLower = g.title.toLowerCase();
+          const alreadyInSeries = existingTitles.includes(titleLower);
+          const alreadyConfirmed = confirmedMissing.includes(titleLower);
+
+          if (!alreadyInSeries && !alreadyConfirmed) {
+            allFound.push(g);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Failed to expand series for game ${game.game_id}:`, e);
+    }
+  }
+
+  if (allFound.length === 0) {
+    showToast("No missing titles found", "info");
+    return;
+  }
+
+  allFound.sort((a, b) => (a.release_year || 9999) - (b.release_year || 9999));
+  seriesMissingGames = allFound;
+
+  renderMissingGames();
+  showToast(`Found ${allFound.length} missing titles`, "success");
+}
+
+function renderMissingGames() {
+  const container = $("#series-missing-games-list");
+  const section = $("#series-missing-confirm");
+
+  container.innerHTML = "";
+  section.classList.remove("hidden");
+
+  seriesMissingGames.forEach((g) => {
+    const card = document.createElement("article");
+    card.className = "game-card series-missing";
+
+    const cover = g.cover_url
+      ? `<img src="${toAbsoluteUrl(g.cover_url)}" alt="${g.title}" />`
+      : `<div class="no-cover">No cover</div>`;
+
+    card.innerHTML = `
+      <div class="game-cover" style="position: relative;">
+        ${cover}
+        <span class="series-missing-badge">MISSING</span>
+      </div>
+      <div class="game-title">${g.title}</div>
+      <div class="game-meta">
+        ${g.platform ? `<span class="game-console-badge">${g.platform}</span>` : ''}
+        ${g.release_year || ''}
+      </div>
+    `;
+
+    container.appendChild(card);
+  });
+}
+
+async function confirmAllMissingGames() {
+  if (!currentSeriesId || seriesMissingGames.length === 0) return;
+
+  showToast(`Adding ${seriesMissingGames.length} missing games...`, "info");
+
+  try {
+    const gamesPayload = seriesMissingGames.map((g) => ({
+      title: g.title,
+      cover_url: g.cover_url || "",
+      platform: g.platform || "",
+      release_year: g.release_year,
+      rawg_id: g.rawg_id,
+      is_missing: true,
+    }));
+
+    await apiCall(`/series/${currentSeriesId}/games/batch`, {
+      method: "POST",
+      body: JSON.stringify({ games: gamesPayload }),
+    });
+
+    await selectSeries(currentSeriesId);
+    await loadSeries();
+    showToast(`Added ${seriesMissingGames.length} missing games to series`, "success");
+  } catch (e) {
+    showToast("Failed to add some games", "error");
+  }
+}
+
+function dismissMissingGames() {
+  seriesMissingGames = [];
+  const section = $("#series-missing-confirm");
+  if (section) section.classList.add("hidden");
 }
 
 // -----------------------------------------------------------
@@ -1958,11 +2021,19 @@ function goToHomepage() {
   statusFilteredGames = [];
   consoleStats = null;
   currentPage = 1;
-  
+  currentSeriesId = null;
+  currentSeriesGames = [];
+  currentView = 'homepage';
+
   // Clear localStorage state for console
   localStorage.setItem('archive_currentView', 'homepage');
   localStorage.setItem('archive_currentConsoleId', '');
   localStorage.setItem('archive_currentCollectionId', '');
+
+  // Hide series views
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
+  $("#game-list").style.display = "";
   
   renderHomepage();
   renderConsoles();
@@ -1976,10 +2047,13 @@ function renderHomepage() {
   $("#search-results").classList.add("hidden");
   $(".app-body").classList.add("show-homepage");
   
-  // Show sidebar elements that were hidden
+  // Hide console/series views
   $(".console-summary").style.display = "none";
   $(".alpha-index").style.display = "none";
   $(".metadata-actions").style.display = "none";
+  $("#game-list").style.display = "";
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
   
   // Load stats and recently viewed
   loadStats();
@@ -1992,6 +2066,8 @@ function showConsoleView() {
   $("#homepage").classList.add("hidden");
   $("#search-results").classList.add("hidden");
   $(".app-body").classList.remove("show-homepage");
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
   
   // Show console view elements
   $(".console-summary").style.display = "flex";
