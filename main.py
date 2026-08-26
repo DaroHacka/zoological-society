@@ -2219,21 +2219,27 @@ def get_games(cid: int):
 
 @app.get("/api/games/search", response_model=List[SearchResultGame])
 def search_games(q: str = Query(..., description="Search query")):
-    """Search games across all consoles"""
+    """Search games across all consoles — word-boundary matching.
+
+    Matches titles where any word starts with the query (not substring).
+    E.g. 'Ys' matches 'Ys I' but NOT 'Odyssey' or 'Mystery'.
+    'Fantasy' matches 'Final Fantasy' but NOT 'Fantasyland'.
+    """
     try:
         conn = get_conn()
         cur = conn.cursor()
         
-        search_term = f"%{q}%"
+        # Word-boundary matching: title starts with query,
+        # OR any word (after space or hyphen) starts with query
         cur.execute("""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
                    g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
-            WHERE g.title LIKE ?
+            WHERE g.title LIKE ? OR g.title LIKE ? OR g.title LIKE ?
             ORDER BY g.title
             LIMIT 50;
-        """, (search_term,))
+        """, (f"{q}%", f"% {q}%", f"%-{q}%"))
         
         rows = cur.fetchall()
         conn.close()
