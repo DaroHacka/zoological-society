@@ -2124,70 +2124,45 @@ async function searchInternetForMissing() {
   seriesMissingAll = [];
   seriesMissingSelected = new Set();
   const seenTitles = new Set();
-  const seenRawgIds = new Set();
 
   const progressEl = $("#series-missing-progress");
   const section = $("#series-missing-confirm");
+  const gamesContainer = $("#series-detail-games");
+
+  // Move missing section above the games list
+  if (section.parentNode !== gamesContainer.parentNode || section.nextElementSibling !== gamesContainer) {
+    section.parentNode.insertBefore(section, gamesContainer);
+  }
+
   section.classList.remove("hidden");
   const container = $("#series-missing-games-list");
   container.innerHTML = "";
   updateMissingCount();
 
-  let rawgResultCount = 0;
-
-  for (const game of currentSeriesGames) {
-    if (seriesSearchAborted) break;
-    if (!game.game_id) continue;
+  // Search Wikipedia for missing titles
+  const series = seriesList.find((s) => s.id === currentSeriesId);
+  if (series) {
+    if (progressEl) {
+      progressEl.textContent = `Searching Wikipedia for "${series.name}" titles...`;
+      progressEl.classList.remove("hidden");
+    }
 
     try {
-      const data = await apiCall(`/series/expand/${game.game_id}`);
-      if (data && data.games) {
-        for (const g of data.games) {
+      const wikiData = await apiCall(`/series/search-wikipedia/${encodeURIComponent(series.name)}`);
+      if (wikiData && wikiData.games) {
+        for (const g of wikiData.games) {
           if (seriesSearchAborted) break;
-          if (g.rawg_id && seenRawgIds.has(g.rawg_id)) continue;
-          if (g.rawg_id) seenRawgIds.add(g.rawg_id);
-
           const titleLower = g.title.toLowerCase();
           if (existingTitles.has(titleLower) || confirmedMissing.has(titleLower) || seenTitles.has(titleLower)) continue;
           seenTitles.add(titleLower);
 
-          g.source = "rawg";
           seriesMissingAll.push(g);
-          rawgResultCount++;
           appendMissingGameCard(g, seriesMissingAll.length - 1);
           updateMissingCount();
         }
       }
     } catch (e) {
-      console.warn(`RAWG expand failed for game ${game.game_id}:`, e);
-    }
-  }
-
-  if (!seriesSearchAborted && rawgResultCount <= 3) {
-    if (progressEl) {
-      progressEl.textContent = `Found ${rawgResultCount} titles from RAWG. Searching Wikipedia for more...`;
-      progressEl.classList.remove("hidden");
-    }
-
-    const series = seriesList.find((s) => s.id === currentSeriesId);
-    if (series) {
-      try {
-        const wikiData = await apiCall(`/series/search-wikipedia/${encodeURIComponent(series.name)}`);
-        if (wikiData && wikiData.games) {
-          for (const g of wikiData.games) {
-            if (seriesSearchAborted) break;
-            const titleLower = g.title.toLowerCase();
-            if (existingTitles.has(titleLower) || confirmedMissing.has(titleLower) || seenTitles.has(titleLower)) continue;
-            seenTitles.add(titleLower);
-
-            seriesMissingAll.push(g);
-            appendMissingGameCard(g, seriesMissingAll.length - 1);
-            updateMissingCount();
-          }
-        }
-      } catch (e) {
-        console.warn("Wikipedia search failed:", e);
-      }
+      console.warn("Wikipedia search failed:", e);
     }
   }
 
@@ -2207,7 +2182,7 @@ async function searchInternetForMissing() {
 function appendMissingGameCard(g, idx) {
   const container = $("#series-missing-games-list");
   const card = document.createElement("article");
-  card.className = "game-card series-missing selectable missing-selectable";
+  card.className = "game-card series-missing selectable missing-selectable selected";
   card.dataset.missingIdx = idx;
   seriesMissingSelected.add(idx);
 
@@ -2276,7 +2251,7 @@ async function confirmSelectedMissing() {
       cover_url: g.cover_url || "",
       platform: g.platform || "",
       release_year: g.release_year,
-      rawg_id: g.rawg_id || null,
+      rawg_id: null,
       is_missing: true,
     }));
 
@@ -2298,7 +2273,12 @@ function dismissMissingGames() {
   seriesMissingSelected = new Set();
   seriesSearchAborted = false;
   const section = $("#series-missing-confirm");
+  const gamesContainer = $("#series-detail-games");
   if (section) section.classList.add("hidden");
+  // Restore DOM order: missing section back after games list
+  if (section && gamesContainer && section.parentNode === gamesContainer.parentNode) {
+    gamesContainer.parentNode.insertBefore(section, gamesContainer.nextSibling);
+  }
   const progressEl = $("#series-missing-progress");
   if (progressEl) progressEl.classList.add("hidden");
 }
