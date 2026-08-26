@@ -1925,6 +1925,7 @@ function groupSeriesView(mode) {
   container.innerHTML = "";
 
   if (mode === "genre") {
+    container.classList.remove("game-list");
     // Group by genre
     const genreGroups = {};
     seriesList.forEach((s) => {
@@ -1947,6 +1948,7 @@ function groupSeriesView(mode) {
       container.appendChild(grid);
     });
   } else {
+    container.classList.add("game-list");
     renderSeriesGrid();
   }
 }
