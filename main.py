@@ -75,6 +75,7 @@ METADATA_DIR = os.path.join(DATA_DIR, "metadata")
 HEADERS_DIR = os.path.join(DATA_DIR, "headers")
 THEME_DIR = os.path.join(BASE_DIR, "theme_images")
 ICONS_DIR = os.path.join(BASE_DIR, "console icons")
+ICO_DIR = os.path.join(BASE_DIR, "ico")
 
 os.makedirs(COVERS_DIR, exist_ok=True)
 os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
@@ -396,6 +397,7 @@ try:
     app.mount("/headers", StaticFiles(directory=HEADERS_DIR), name="headers")
     app.mount("/theme_images", StaticFiles(directory=THEME_DIR), name="theme_images")
     app.mount("/icons", StaticFiles(directory=ICONS_DIR), name="icons")
+    app.mount("/ico", StaticFiles(directory=ICO_DIR), name="ico")
     logger.info("Static file serving configured successfully")
 except Exception as e:
     logger.error(f"Failed to mount static files: {e}")
@@ -4402,6 +4404,14 @@ class GameCollectionsResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class GameSeriesResponse(BaseModel):
+    series_id: int
+    series_name: str
+    entry_id: int
+
+    class Config:
+        from_attributes = True
+
 # --- Series Models ---
 
 class SeriesBase(BaseModel):
@@ -4675,6 +4685,28 @@ def get_game_collections(game_id: int):
     except Exception as e:
         logger.error(f"Failed to get game collections: {e}")
         raise HTTPException(status_code=500, detail="Failed to get game collections")
+
+@app.get("/api/games/{game_id}/series", response_model=List[GameSeriesResponse])
+def get_game_series(game_id: int):
+    """Get all series a game belongs to"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT sg.id as entry_id, sg.series_id as series_id, s.name as series_name
+            FROM series_games sg
+            JOIN series s ON sg.series_id = s.id
+            WHERE sg.game_id = ? AND sg.is_missing = 0
+            ORDER BY s.name;
+        """, (game_id,))
+
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get game series: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get game series")
 
 # -------------------------------------------------------------------
 # API: Series

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=35" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -25,7 +25,7 @@
         <div class="title-area">
           <div class="title-row">
             <h1 id="app-title" onclick="goToHomepage()" style="cursor: pointer;">Zoological Society</h1>
-            <span class="pencil-icon" onclick="startRenameTitle()">✏️</span>
+            <span class="pencil-icon" onclick="startRenameTitle()"><img src="ico/edit.svg" class="icon-img-sm" alt="Edit"/></span>
             <input type="text" id="title-edit-input" class="title-edit-input hidden" onblur="finishRenameTitle()" onkeydown="handleRenameTitleKey(event)" />
           </div>
           <p id="app-subtitle">your own curated archive</p>
@@ -34,8 +34,8 @@
       <div class="header-right">
         <button id="btn-home" onclick="goToHomepage()">Home</button>
         <button id="btn-add-console">Add console</button>
-        <button id="btn-theme">Options &#9881;&#65039;</button>
-        <button id="btn-random-header" class="icon-btn" onclick="onRandomHeader()" title="Random Header">🔄</button>
+        <button id="btn-theme"><img src="ico/settings.svg" class="icon-img-sm" alt="Settings"/> Settings</button>
+        <button id="btn-random-header" class="icon-btn" onclick="onRandomHeader()" title="Random Header"><img src="ico/refresh.svg" class="icon-img-sm" alt="Random Header"/></button>
       </div>
     </header>
 
@@ -45,17 +45,21 @@
 
     <!-- SIDEBAR -->
       <aside class="sidebar" id="sidebar">
-        <h2 onclick="toggleConsoleList()" style="cursor: pointer;">Consoles <span id="console-list-toggle-icon">▶</span></h2>
+        <button class="sidebar-section-btn" id="consoles-section-btn" onclick="toggleConsoleList()">
+          <span class="sidebar-section-icon" id="console-section-icon"></span>
+          <span>Consoles</span>
+        </button>
         <ul id="console-list">
           <!-- Filled by JS -->
         </ul>
 
         <!-- Genre Filter -->
         <div id="genre-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleGenreFilter()">
-            📂 Genres <span id="genre-toggle-icon">▶</span>
-            <span id="genre-edit-btn" class="genre-edit-btn hidden" onclick="event.stopPropagation(); toggleGenreEditMode()" title="Edit Genres">⚙️</span>
-          </h3>
+          <button class="sidebar-section-btn" id="genre-section-btn" onclick="toggleGenreFilter()">
+            <span class="sidebar-section-icon" id="genre-section-icon"></span>
+            <span>Genres</span>
+            <span id="genre-edit-btn" class="genre-edit-btn hidden" onclick="event.stopPropagation(); toggleGenreEditMode()" title="Edit Genres"></span>
+          </button>
           <ul id="genre-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <!-- Filled by JS -->
           </ul>
@@ -63,9 +67,10 @@
 
         <!-- Game Detail Filters -->
         <div id="detail-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleDetailFilter()">
-            🎮 Game Details <span id="detail-filter-toggle-icon">▶</span>
-          </h3>
+          <button class="sidebar-section-btn" id="detail-section-btn" onclick="toggleDetailFilter()">
+            <span class="sidebar-section-icon" id="detail-section-icon"></span>
+            <span>Game Details</span>
+          </button>
           <div id="detail-filter-content" style="display: none;">
             <div class="detail-filter-group">
               <h4 onclick="toggleDetailFilterGroup('decade')" style="cursor:pointer; margin: 8px 0 4px; font-size: 0.85rem; color: var(--text-primary);">Decades <span id="decade-toggle-icon">▶</span></h4>
@@ -84,7 +89,10 @@
 
         <!-- Status Filter -->
         <div id="status-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleStatusFilter()">🎯 Status <span id="status-toggle-icon">▶</span></h3>
+          <button class="sidebar-section-btn" id="status-section-btn" onclick="toggleStatusFilter()">
+            <span class="sidebar-section-icon" id="status-section-icon"></span>
+            <span>Status</span>
+          </button>
           <ul id="status-filter-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <li data-status="favorite" class="status-filter-item" onclick="applyStatusFilter('favorite')">⭐ Favorites <span class="count" id="count-favorite">0</span></li>
             <li data-status="playing" class="status-filter-item" onclick="applyStatusFilter('playing')">🎮 Playing <span class="count" id="count-playing">0</span></li>
@@ -97,10 +105,11 @@
 
         <!-- Collections -->
         <div id="collections-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <h3 style="margin: 0 0 8px; font-size: 1rem; cursor: pointer;" onclick="toggleCollectionsList()">
-            🗂️ Collections <span id="collections-toggle-icon">▶</span>
-          </h3>
-          <button onclick="openCreateCollectionModal()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;display:none;" id="btn-create-collection">+ New Collection</button>
+          <button class="sidebar-section-btn" id="collections-section-btn" onclick="toggleCollectionsList()">
+            <span class="sidebar-section-icon" id="collections-section-icon"></span>
+            <span>Collections</span>
+          </button>
+          <button onclick="openCreateCollectionModal()" class="secondary" style="width:100%;margin-top:8px;font-size:0.8rem;display:none;" id="btn-create-collection">+ New Collection</button>
           <ul id="collections-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <!-- Filled by JS -->
           </ul>
@@ -108,8 +117,8 @@
 
         <!-- Series -->
         <div id="series-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <button onclick="showSeriesListView()" class="secondary" style="width:100%;margin-bottom:8px;font-size:0.8rem;">
-            📚 Series
+          <button onclick="showSeriesListView()" class="secondary sidebar-series-btn" style="width:100%;margin-bottom:8px;font-size:0.8rem;">
+            <img src="ico/series.svg" class="sidebar-section-icon" alt="Series" /> Series
           </button>
           <button onclick="openSeriesCreateView()" class="secondary" style="width:100%;font-size:0.8rem;">
             + New Series
@@ -129,7 +138,7 @@
             <!-- Global Search -->
             <div class="global-search">
               <input type="text" id="global-search-input" placeholder="Search all games across all consoles..." />
-              <button id="global-search-btn">Search</button>
+              <button id="global-search-btn">Search <img src="ico/search.svg" class="icon-img-sm" alt="Search"/></button>
             </div>
           </div>
           
@@ -252,7 +261,7 @@
         <!-- SERIES LIST VIEW (hidden by default) -->
         <section id="series-list-view" class="hidden">
           <div class="series-list-header">
-            <h2>📚 Series</h2>
+            <h2><img src="ico/series.svg" class="icon-img-sm" alt="Series"/> Series</h2>
             <div style="display: flex; gap: 8px; align-items: center;">
               <select id="series-group-select" class="series-sort-dropdown" onchange="groupSeriesView(this.value)">
                 <option value="all">All Series</option>
@@ -311,8 +320,9 @@
                 <option value="chronological">Chronological</option>
                 <option value="console">By Console</option>
               </select>
+              <button class="secondary" onclick="openSeriesEditModal()"><img class="icon-img-sm" src="ico/edit.svg" alt="Edit"/> Edit Series</button>
               <button class="secondary" onclick="searchInternetForMissing()">🔍 Search Internet for Missing Titles</button>
-              <button class="secondary" style="color: #ff6b6b;" onclick="deleteSeriesFromDetail()">🗑️ Delete Series</button>
+              <button class="secondary" style="color: #ff6b6b;" onclick="deleteSeriesFromDetail()"><img class="icon-img-sm" src="ico/recycle%20bin.svg" alt="Delete"/> Delete Series</button>
             </div>
           </div>
           <div id="series-detail-games" class="game-list">
@@ -382,7 +392,7 @@
   <!-- Theme Modal -->
   <div class="modal hidden" id="modal-theme">
     <div class="modal-content">
-      <h2>Options</h2>
+      <h2>Settings</h2>
       <label>
         Background color
         <input type="color" id="theme-bg-color" value="#101018" />
@@ -408,7 +418,7 @@
         <input type="file" id="theme-header-upload" accept="image/*" />
       </label>
       <div class="theme-header-actions">
-        <button type="button" id="btn-theme-random-header" class="secondary">🔄 Random Header</button>
+        <button type="button" id="btn-theme-random-header" class="secondary"><img src="ico/refresh.svg" class="icon-img-sm" alt="Refresh"/> Random Header</button>
       </div>
 
       <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
@@ -716,6 +726,25 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
+  <!-- Series Edit Modal -->
+  <div class="modal hidden" id="modal-series-edit">
+    <div class="modal-content">
+      <h2>Edit Series</h2>
+      <label>
+        Series Name
+        <input type="text" id="series-edit-name" autocomplete="off" />
+      </label>
+      <label>
+        Genre
+        <input type="text" id="series-edit-genre" placeholder="RPG, Action, Adventure..." autocomplete="off" />
+      </label>
+      <div class="modal-actions">
+        <button class="secondary" onclick="toggleModal('#modal-series-edit', false)">Cancel</button>
+        <button id="btn-series-edit-save" onclick="saveSeriesEdit()"><img class="icon-img-sm" src="ico/edit.svg" alt="Edit"/> Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Genre Edit Modal -->
   <div class="modal hidden" id="modal-genre-edit">
     <div class="modal-content">
@@ -764,6 +793,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=34"></script>
+  <script src="app.v2.js?v=35"></script>
 </body>
 </html>

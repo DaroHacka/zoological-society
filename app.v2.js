@@ -618,11 +618,10 @@ function toggleGenreFilter() {
   
   if (genreFilterOpen) {
     genreList.style.display = "block";
-    icon.textContent = "▼";
   } else {
     genreList.style.display = "none";
-    icon.textContent = "▶";
   }
+  if (icon) icon.textContent = genreFilterOpen ? "▼" : "▶";
 }
 
 function extractGenres() {
@@ -925,8 +924,8 @@ function renderGroupsList() {
     item.innerHTML = `
       <span class="group-name">${group.name} (${group.genres.length})</span>
       <div class="group-actions">
-        <button onclick="editGroup('${group.id}')" title="Edit">✏️</button>
-        <button onclick="deleteGroup('${group.id}')" title="Delete">🗑️</button>
+        <button onclick="editGroup('${group.id}')" title="Edit"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
+        <button onclick="deleteGroup('${group.id}')" title="Delete"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
       </div>
     `;
     groupsList.appendChild(item);
@@ -1102,10 +1101,10 @@ function toggleStatusFilter() {
   
   if (statusList.style.display === "none") {
     statusList.style.display = "block";
-    icon.textContent = "▼";
+    if (icon) icon.textContent = "▼";
   } else {
     statusList.style.display = "none";
-    icon.textContent = "▶";
+    if (icon) icon.textContent = "▶";
   }
 }
 
@@ -1116,11 +1115,11 @@ function toggleConsoleList() {
   
   if (collapsed) {
     consoleList.style.display = "block";
-    icon.textContent = "▼";
+    if (icon) icon.textContent = "▼";
     localStorage.setItem("consoleListCollapsed", "false");
   } else {
     consoleList.style.display = "none";
-    icon.textContent = "▶";
+    if (icon) icon.textContent = "▶";
     localStorage.setItem("consoleListCollapsed", "true");
   }
 }
@@ -1132,10 +1131,10 @@ function loadConsoleListState() {
   
   if (collapsed) {
     consoleList.style.display = "none";
-    icon.textContent = "▶";
+    if (icon) icon.textContent = "▶";
   } else {
     consoleList.style.display = "block";
-    icon.textContent = "▼";
+    if (icon) icon.textContent = "▼";
   }
 }
 
@@ -1174,7 +1173,7 @@ function renderCollections() {
     li.innerHTML = `
       <span class="collection-name">${c.name}</span>
       <span class="collection-count">${c.game_count}</span>
-      <button class="delete-collection-btn" onclick="deleteCollection(${c.id}, event)" title="Delete collection">🗑️</button>
+      <button class="delete-collection-btn" onclick="deleteCollection(${c.id}, event)" title="Delete collection"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
     `;
     li.addEventListener("click", async (e) => {
       if (!e.target.classList.contains("delete-collection-btn")) {
@@ -1199,7 +1198,7 @@ function toggleCollectionsList() {
 
   const collapsed = list.style.display === "none" || list.style.display === "";
   list.style.display = collapsed ? "block" : "none";
-  icon.textContent = collapsed ? "▼" : "▶";
+  if (icon) icon.textContent = collapsed ? "▼" : "▶";
   if (createBtn) createBtn.style.display = collapsed ? "block" : "none";
   localStorage.setItem("collectionsListCollapsed", collapsed ? "false" : "true");
 }
@@ -1213,11 +1212,11 @@ function loadCollectionsListState() {
 
   if (collapsed) {
     list.style.display = "none";
-    icon.textContent = "▶";
+    if (icon) icon.textContent = "▶";
     if (createBtn) createBtn.style.display = "none";
   } else {
     list.style.display = "block";
-    icon.textContent = "▼";
+    if (icon) icon.textContent = "▼";
     if (createBtn) createBtn.style.display = "block";
   }
 }
@@ -1315,7 +1314,7 @@ function renderCollectionGames() {
   if (!container) return;
 
   const collection = collections.find((c) => c.id === currentCollectionId);
-  titleEl.textContent = collection ? `📂 ${collection.name}` : "Collection";
+  titleEl.innerHTML = collection ? `<img src="/ico/collection.svg" class="icon-img-sm" alt="Collection"/> ${collection.name}` : "Collection";
 
   // Hide metadata actions for collection view
   const alpha = $("#alpha-index");
@@ -1347,7 +1346,7 @@ function renderCollectionGames() {
     card.innerHTML = `
       <div class="game-cover" style="position: relative;">
         ${cover}
-        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.game_id}, event)" title="Fetch metadata">🔄</button>
+        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.game_id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
       </div>
       <div class="game-title">${g.title}</div>
       <div class="game-meta">
@@ -1636,7 +1635,7 @@ function renderSeriesDetail() {
   const series = seriesList.find((s) => s.id === currentSeriesId);
   if (!series) return;
 
-  $("#series-detail-title").textContent = `📚 ${series.name}`;
+  $("#series-detail-title").textContent = series.name;
   $("#series-detail-count").textContent = `${currentSeriesGames.length} games`;
 
   const container = $("#series-detail-games");
@@ -1907,11 +1906,13 @@ function renderSeriesGrid() {
         <span class="game-console-badge">${s.game_count} games</span>
         ${s.genre ? `<span class="genre-badge">${s.genre}</span>` : ''}
       </div>
-      <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series">🗑️</button>
+      <button class="series-edit-grid-btn" onclick="openSeriesEditModal(${s.id}, event)" title="Edit series"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
+      <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
     `;
 
     card.addEventListener("click", (e) => {
       if (e.target.closest('.series-delete-grid-btn')) return;
+      if (e.target.closest('.series-edit-grid-btn')) return;
       selectSeries(s.id);
     });
 
@@ -1969,11 +1970,13 @@ function createSeriesGridCard(s) {
       <span class="game-console-badge">${s.game_count} games</span>
       ${s.genre ? `<span class="genre-badge">${s.genre}</span>` : ''}
     </div>
-    <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series">🗑️</button>
+    <button class="series-edit-grid-btn" onclick="openSeriesEditModal(${s.id}, event)" title="Edit series"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
+    <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
   `;
 
   card.addEventListener("click", (e) => {
     if (e.target.closest('.series-delete-grid-btn')) return;
+    if (e.target.closest('.series-edit-grid-btn')) return;
     selectSeries(s.id);
   });
 
@@ -1982,8 +1985,50 @@ function createSeriesGridCard(s) {
 
 // --- Game Detail Filters (Sidebar) ---
 
+
 let detailFilterState = {};
 let activeDetailFilters = { decade: null, developer: null, publisher: null };
+
+let currentSeriesEditingId = null;
+
+function openSeriesEditModal(seriesId, event) {
+  if (event && event.stopPropagation) event.stopPropagation();
+  const id = seriesId || currentSeriesId;
+  const series = seriesList.find((s) => s.id === id);
+  if (!series) return;
+  currentSeriesEditingId = id;
+  $("#series-edit-name").value = series.name;
+  $("#series-edit-genre").value = series.genre || "";
+  toggleModal("#modal-series-edit", true);
+}
+
+async function saveSeriesEdit() {
+  if (!currentSeriesEditingId) return;
+  const name = $("#series-edit-name").value.trim();
+  const genre = $("#series-edit-genre").value.trim();
+  if (!name) {
+    showToast("Series name cannot be empty", "error");
+    return;
+  }
+  try {
+    await apiCall(`/series/${currentSeriesEditingId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, genre }),
+    });
+    const idx = seriesList.findIndex((s) => s.id === currentSeriesEditingId);
+    if (idx !== -1) {
+      seriesList[idx].name = name;
+      seriesList[idx].genre = genre;
+    }
+    toggleModal("#modal-series-edit", false);
+    showToast("Series updated", "success");
+    if (currentSeriesId === currentSeriesEditingId) renderSeriesDetail();
+    renderSeriesGrid();
+    loadHomepageSeries();
+  } catch (e) {
+    // apiCall shows error toast
+  }
+}
 
 async function loadDetailFilters() {
   try {
@@ -2021,7 +2066,7 @@ function toggleDetailFilter() {
   if (!content) return;
   const collapsed = content.style.display === "none";
   content.style.display = collapsed ? "block" : "none";
-  icon.textContent = collapsed ? "▼" : "▶";
+  if (icon) icon.textContent = collapsed ? "▼" : "▶";
 }
 
 function toggleDetailFilterGroup(type) {
@@ -2467,7 +2512,12 @@ function loadHomepageSeries() {
   section.style.display = "block";
   container.innerHTML = "";
 
-  seriesList.forEach((s) => {
+  const recent = [...seriesList]
+    .filter((s) => s.created_at)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 10);
+
+  recent.forEach((s) => {
     const div = document.createElement("div");
     div.className = "recent-game-card";
     div.onclick = () => selectSeries(s.id);
@@ -3511,8 +3561,8 @@ function renderConsoles() {
     li.dataset.id = c.id;
     li.className = c.id === currentConsoleId ? "active" : "";
     li.innerHTML = `
-      <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console">✏️</button>
-      <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console">🗑️</button>
+      <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
+      <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
       ${c.icon_url ? `<img class="console-icon" src="${toAbsoluteUrl(c.icon_url)}" alt="${c.name}" />` : ''}
       <span class="console-name">${c.name}</span>
       <span class="console-count">${c.game_count}</span>
@@ -4414,9 +4464,9 @@ function renderGamesForCurrentConsole() {
     card.innerHTML = `
       <div class="game-cover" style="position: relative;">
         ${cover}
-        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata">🔄</button>
+        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
-        <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game">🗑️</button>
+        <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
         <button class="game-card-fetch-cover" onclick="fetchSingleGameCover(${g.id}, event)" title="Fetch cover from DuckDuckGo">🖼️</button>
         ${g.is_completed ? '<div class="game-card-status-badge game-card-completed-badge">✅</div>' : ''}
         ${g.is_printed ? '<div class="game-card-status-badge game-card-printed-badge">🖨️</div>' : ''}
@@ -4534,9 +4584,9 @@ function renderGlobalStatusFilteredGames(container) {
     card.innerHTML = `
       <div class="game-cover" style="position: relative;">
         ${cover}
-        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata">🔄</button>
+        <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
-        <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game">🗑️</button>
+        <button class="game-card-delete" onclick="deleteGame(${g.id}, event)" title="Delete game"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
         <button class="game-card-fetch-cover" onclick="fetchSingleGameCover(${g.id}, event)" title="Fetch cover from DuckDuckGo">🖼️</button>
         ${g.is_completed ? '<div class="game-card-status-badge game-card-completed-badge">✅</div>' : ''}
         ${g.is_printed ? '<div class="game-card-status-badge game-card-printed-badge">🖨️</div>' : ''}
@@ -4723,7 +4773,7 @@ function renderGameDetail(game) {
     ? `
       <div style="position: relative;">
         <img src="${toAbsoluteUrl(game.cover_url)}${game.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${game.title} cover" class="game-detail-cover" style="cursor:pointer;" onclick="openCoverLightbox('${toAbsoluteUrl(game.cover_url)}?t=${Date.now()}')" title="Click to view full size" />
-        <button class="delete-cover-btn" onclick="deleteGameCover(${game.id})" title="Delete cover">🗑️</button>
+        <button class="delete-cover-btn" onclick="deleteGameCover(${game.id})" title="Delete cover"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
       </div>
     `
     : `<div class="no-cover">No cover</div>`;
@@ -4739,7 +4789,7 @@ function renderGameDetail(game) {
             (screenshot) => `
               <div style="position: relative;">
                 <img src="${toAbsoluteUrl(screenshot.url)}?t=${Date.now()}" alt="Screenshot" class="screenshot-thumb" onclick="openLightbox('${toAbsoluteUrl(screenshot.url)}?t=${Date.now()}')" />
-                <button class="delete-screenshot-btn" onclick="deleteScreenshot(${screenshot.id})" title="Delete screenshot">🗑️</button>
+                <button class="delete-screenshot-btn" onclick="deleteScreenshot(${screenshot.id})" title="Delete screenshot"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
               </div>
             `
           )
@@ -4763,8 +4813,8 @@ function renderGameDetail(game) {
       onclick="navigateToNextGame()" ${isLast ? 'disabled' : ''} title="Next game (→)">▶</button>
     <div class="game-detail-position">${positionText}</div>
     <div class="game-detail-actions">
-      <button class="game-detail-edit-btn secondary" onclick="openEditGameModal(${game.id})">✏️ Edit Details</button>
-      <button class="game-detail-fetch-btn secondary" onclick="fetchSingleGameMetadata(${game.id})">🔄 Fetch Metadata</button>
+      <button class="game-detail-edit-btn secondary" onclick="openEditGameModal(${game.id})"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/> Edit Details</button>
+      <button class="game-detail-fetch-btn secondary" onclick="fetchSingleGameMetadata(${game.id})"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/> Fetch Metadata</button>
       <button class="game-detail-fetch-btn secondary" onclick="fetchSingleGameScreenshots(${game.id})">🖼️ Fetch Screenshots</button>
       <button class="game-detail-fetch-btn secondary" onclick="openAddScreenshotModal(${game.id}, ${game.screenshots ? game.screenshots.length : 0})" ${game.screenshots && game.screenshots.length >= 5 ? 'disabled title="Maximum 5 screenshots reached"' : ''}>➕ Add Screenshot</button>
     </div>
@@ -4789,10 +4839,19 @@ function renderGameDetail(game) {
           <div id="collection-suggestions" class="collection-suggestions" style="display:none;"></div>
         </div>
       </div>
+      <div class="game-detail-collections" id="game-detail-series">
+        <h3><img src="/ico/series.svg" class="icon-img-sm" alt="Series"/> Series</h3>
+        <div id="game-series-tags" class="collection-tags"></div>
+        <div class="add-to-collection" style="margin-top:8px;">
+          <input type="text" id="series-input" placeholder="Type series name to add..." autocomplete="off" />
+          <div id="series-suggestions" class="collection-suggestions" style="display:none;"></div>
+        </div>
+      </div>
     </div>
   `;
 
   renderGameDetailCollections(game);
+  renderGameDetailSeries(game);
 }
 
 async function renderGameDetailCollections(game) {
@@ -4877,6 +4936,138 @@ async function createAndAddCollection(name, gameId) {
     // Error already shown
   }
 }
+
+// --- Series membership (game detail) ---
+
+async function renderGameDetailSeries(game) {
+  const tagsContainer = document.getElementById("game-series-tags");
+  const input = document.getElementById("series-input");
+  if (!tagsContainer) return;
+
+  if (seriesList.length === 0) {
+    try {
+      seriesList = await apiCall("/series");
+    } catch (e) {}
+  }
+
+  let gameSeries = [];
+  try {
+    gameSeries = await apiCall(`/games/${game.id}/series`);
+  } catch (e) {
+    gameSeries = [];
+  }
+
+  tagsContainer.innerHTML = "";
+  if (gameSeries.length > 0) {
+    gameSeries.forEach((s) => {
+      const tag = document.createElement("span");
+      tag.className = "collection-tag";
+      tag.innerHTML = `${esc(s.series_name)} <span class="collection-tag-remove" onclick="removeGameFromSeries(${s.entry_id}, ${game.id})">×</span>`;
+      tagsContainer.appendChild(tag);
+    });
+  } else {
+    tagsContainer.innerHTML = '<span class="no-collections">Not in any series</span>';
+  }
+
+  if (input) {
+    input.value = "";
+    input.oninput = function () {
+      const val = this.value.trim().toLowerCase();
+      const suggestions = document.getElementById("series-suggestions");
+      if (!val || val.length < 1) {
+        suggestions.style.display = "none";
+        return;
+      }
+      const matches = seriesList.filter((s) =>
+        s.name.toLowerCase().includes(val)
+      );
+      if (matches.length === 0) {
+        suggestions.innerHTML = `<div class="collection-suggestion" onclick="createAndAddSeries('${escHtmlAttr(this.value.trim())}', ${game.id})">+ Create "${escHtml(this.value.trim())}" Series</div>`;
+        suggestions.style.display = "block";
+        return;
+      }
+      suggestions.innerHTML = matches
+        .map(
+          (s) =>
+            `<div class="collection-suggestion" onclick="addGameToSeries(${s.id}, ${game.id}); document.getElementById('series-input').value = ''; document.getElementById('series-suggestions').style.display = 'none';">${esc(s.name)} (${s.game_count})</div>`
+        )
+        .join("");
+      suggestions.style.display = "block";
+    };
+
+    input.onblur = function () {
+      setTimeout(() => {
+        document.getElementById("series-suggestions").style.display = "none";
+      }, 200);
+    };
+
+    input.onfocus = function () {
+      if (this.value.trim()) {
+        this.oninput();
+      }
+    };
+  }
+}
+
+async function addGameToSeries(seriesId, gameId) {
+  try {
+    await apiCall(`/series/${seriesId}/games`, {
+      method: "POST",
+      body: JSON.stringify({ game_id: gameId }),
+    });
+    showToast("Game added to series", "success");
+    await loadSeries();
+    renderGameDetailSeries(currentGameDetail);
+    if (currentSeriesId === seriesId) {
+      await selectSeries(seriesId);
+    }
+  } catch (e) {
+    // apiCall shows error toast
+  }
+}
+
+async function removeGameFromSeries(entryId, gameId) {
+  try {
+    const entry = await apiCall(`/games/${gameId}/series`);
+    const target = entry.find((x) => x.entry_id === entryId);
+    if (!target) return;
+    await apiCall(`/series/${target.series_id}/games/${entryId}`, {
+      method: "DELETE",
+    });
+    showToast("Game removed from series", "success");
+    await loadSeries();
+    renderGameDetailSeries(currentGameDetail);
+  } catch (e) {
+    // apiCall shows error toast
+  }
+}
+
+async function createAndAddSeries(name, gameId) {
+  try {
+    let series = seriesList.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (!series) {
+      series = await apiCall("/series", {
+        method: "POST",
+        body: JSON.stringify({ name, genre: "" }),
+      });
+      seriesList.push(series);
+    }
+    await addGameToSeries(series.id, gameId);
+  } catch (e) {
+    // apiCall shows error toast
+  }
+}
+
+function esc(str) {
+  const div = document.createElement("div");
+  div.textContent = str == null ? "" : String(str);
+  return div.innerHTML;
+}
+
+function escHtmlAttr(str) {
+  return esc(str).replace(/"/g, '&quot;');
+}
+
 
 // -----------------------------------------------------------
 // Game Detail Navigation
@@ -5823,6 +6014,7 @@ function initExtraFeatures() {
   loadConsoleListState();
   loadCustomTitle();
   applyRandomHeaderOnLoad();
+  initSidebarIcons();
 
   // Clean up sidebar state on resize (e.g. tablet rotation)
   window.addEventListener("resize", () => {
@@ -5835,6 +6027,46 @@ function initExtraFeatures() {
 
   // Swipe left/right on game list to change pages
   initGameListSwipe();
+}
+
+const ICON_ROTATION_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+function getRotatingIcon(folder, files, storageKey) {
+  const now = Date.now();
+  let state = null;
+  try {
+    state = JSON.parse(localStorage.getItem(storageKey) || "null");
+  } catch (e) {
+    state = null;
+  }
+  if (!state || !files.length || (now - state.ts) >= ICON_ROTATION_MS || !files[state.index]) {
+    const index = Math.floor(Math.random() * files.length);
+    state = { index, ts: now };
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    } catch (e) {}
+  }
+  return `/ico/${folder}/${files[state.index]}`;
+}
+
+function setSidebarIcon(elId, src) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = `<img src="${toAbsoluteUrl(src)}" alt="" />`;
+}
+
+function initSidebarIcons() {
+  const consolesIcons = ["c01.svg", "c02.svg", "c03.svg", "c04.svg", "c05.svg"];
+  const genreIcons = ["g01.png", "g02.png", "g03.png", "g04.png", "g05.png", "g06.png", "g08.png", "g09.png", "g10.png", "g11.png", "g12.png", "g13.png", "g14.png", "g15.png", "g16.png", "g17.png", "g18.png", "g19.png"];
+
+  const consoleIcon = getRotatingIcon("consoles", consolesIcons, "archive_console_section_icon");
+  const genreIcon = getRotatingIcon("genre", genreIcons, "archive_genre_section_icon");
+
+  setSidebarIcon("console-section-icon", consoleIcon);
+  setSidebarIcon("genre-section-icon", genreIcon);
+  setSidebarIcon("status-section-icon", "/ico/status.svg");
+  setSidebarIcon("collection-section-icon", "/ico/collection.svg");
+  setSidebarIcon("detail-section-icon", "/ico/game-details.svg");
 }
 
 function initGameListSwipe() {

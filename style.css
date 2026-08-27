@@ -256,10 +256,71 @@ body {
   font-size: 1.1rem;
 }
 
+.sidebar-section-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.sidebar-section-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+  background: rgba(255, 180, 0, 0.05);
+  transform: none;
+  box-shadow: none;
+}
+
+.sidebar-section-btn:active {
+  transform: none;
+}
+
+.sidebar-section-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.sidebar-section-btn .sidebar-section-icon,
+.sidebar-series-btn .sidebar-section-icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+
 #console-list {
   list-style: none;
   padding: 0;
-  margin: 8px 0 0;
+  margin: 12px 0 0;
+}
+
+.icon-img-sm {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+}
+
+.genre-edit-btn {
+  margin-left: auto;
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  background: url("ico/cog.svg") no-repeat center / contain;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.genre-edit-btn:hover {
+  opacity: 1;
 }
 
 #console-list li {
@@ -1583,9 +1644,11 @@ button:disabled {
 .sidebar.sidebar-collapsed h2,
 .sidebar.sidebar-collapsed h3,
 .sidebar.sidebar-collapsed ul,
+.sidebar.sidebar-collapsed .sidebar-section-btn,
 .sidebar.sidebar-collapsed #genre-filter-section,
 .sidebar.sidebar-collapsed #status-filter-section,
 .sidebar.sidebar-collapsed #collections-section,
+.sidebar.sidebar-collapsed #console-list,
 .sidebar.sidebar-collapsed #btn-create-collection,
 .sidebar.sidebar-collapsed #series-section,
 .sidebar.sidebar-collapsed #btn-create-series {
@@ -2906,6 +2969,31 @@ button:disabled {
 
 .series-delete-grid-btn:hover {
   background: rgba(255, 107, 107, 0.8);
+}
+
+.series-edit-grid-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+}
+
+.series-grid-card:hover .series-edit-grid-btn {
+  opacity: 1;
+}
+
+.series-edit-grid-btn:hover {
+  background: rgba(255, 180, 0, 0.8);
 }
 
 .genre-badge {
