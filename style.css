@@ -1671,6 +1671,7 @@ button:disabled {
     padding: 4px 8px;
     border-radius: var(--radius);
     cursor: pointer;
+    margin-left: -20px;
     margin-right: 4px;
   }
 }
@@ -1866,6 +1867,7 @@ button:disabled {
     bottom: 0;
     width: 240px;
     z-index: 500;
+    padding-top: 240px;
     transform: translateX(-100%);
     transition: transform 0.25s ease;
     border-right: 1px solid var(--border-subtle);
@@ -1892,7 +1894,7 @@ button:disabled {
   }
   #header-logo {
     width: 110px;
-    left: 10px;
+    left: 58px;
   }
   .header-left {
     padding-left: 130px;
