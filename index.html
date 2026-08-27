@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=37" />
+  <link rel="stylesheet" href="style.css?v=38" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -21,6 +21,7 @@
     <header class="app-header">
       <button class="sidebar-toggle header-hamburger" id="btn-hamburger" onclick="toggleSidebarCollapse()" title="Menu">☰</button>
       <div class="header-left">
+        <img id="header-logo" src="ico/zoological logo.png" alt="logo"/>
         <span id="title-collapse-arrow" class="collapse-arrow" onclick="toggleTitleCollapse()">▼</span>
         <div class="title-area">
           <div class="title-row">
@@ -126,7 +127,7 @@
         <!-- HOMEPAGE (shown by default) -->
         <section id="homepage" class="homepage">
           <div class="homepage-hero">
-            <h1 id="homepage-title">Zoological Society</h1>
+            <h1 id="homepage-title"><img src="ico/zoological logo.png" class="homepage-logo" alt=""/> Zoological Society <img src="ico/zoological logo.png" class="homepage-logo" alt=""/></h1>
             <p class="homepage-tagline">Your personal digital vault for video games</p>
             
             <!-- Global Search -->

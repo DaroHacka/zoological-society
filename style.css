@@ -142,6 +142,26 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
+  padding-left: 110px;
+}
+
+#header-logo {
+  position: absolute;
+  left: 20px;
+  bottom: -30px;
+  width: 90px;
+  height: 90px;
+  object-fit: contain;
+  z-index: 3;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
+}
+
+.homepage-logo {
+  width: 56px;
+  height: 56px;
+  vertical-align: middle;
+  object-fit: contain;
+  margin: 0 6px;
 }
 
 .header-right {
@@ -248,6 +268,7 @@ body {
   background: var(--bg-alt);
   border-right: 1px solid var(--border-subtle);
   padding: 16px;
+  padding-top: 64px;
   overflow-y: auto;
 }
 
@@ -259,7 +280,7 @@ body {
 .sidebar-section-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   background: transparent;
   color: var(--text-muted);
@@ -269,15 +290,15 @@ body {
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
-  text-align: center;
+  text-align: left;
   overflow: hidden;
-  min-height: 38px;
+  min-height: 50px;
   transition: all 0.2s ease;
 }
 
 .section-btn-label {
   flex: 1;
-  text-align: center;
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1701,6 +1722,15 @@ button:disabled {
     padding: 8px 12px;
     max-height: 120px;
     overflow: hidden;
+  }
+  #header-logo {
+    width: 60px;
+    height: 60px;
+    left: 12px;
+    bottom: 0;
+  }
+  .header-left {
+    padding-left: 72px;
   }
   .title-area h1 {
     font-size: 1.2rem;
