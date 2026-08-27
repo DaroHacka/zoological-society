@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=36" />
+  <link rel="stylesheet" href="style.css?v=37" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -54,7 +54,7 @@
         </ul>
 
         <!-- Genre Filter -->
-        <div id="genre-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
+        <div id="genre-filter-section" style="margin-top: 24px; padding-top: 16px; display: none;">
           <button class="sidebar-section-btn" id="genre-section-btn" onclick="toggleGenreFilter()">
             <span class="sidebar-section-icon" id="genre-section-icon"></span>
             <span class="section-btn-label">Genres</span>
@@ -66,7 +66,7 @@
         </div>
 
         <!-- Game Detail Filters -->
-        <div id="detail-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
+        <div id="detail-filter-section" style="margin-top: 24px; padding-top: 16px; display: none;">
           <button class="sidebar-section-btn" id="detail-section-btn" onclick="toggleDetailFilter()">
             <span class="sidebar-section-icon" id="detail-section-icon"></span>
             <span class="section-btn-label">Game Details</span>
@@ -88,7 +88,7 @@
         </div>
 
         <!-- Status Filter -->
-        <div id="status-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+        <div id="status-filter-section" style="margin-top: 24px; padding-top: 16px;">
           <button class="sidebar-section-btn" id="status-section-btn" onclick="toggleStatusFilter()">
             <span class="sidebar-section-icon" id="status-section-icon"></span>
             <span class="section-btn-label">Status</span>
@@ -104,24 +104,18 @@
         </div>
 
         <!-- Collections -->
-        <div id="collections-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <button class="sidebar-section-btn" id="collections-section-btn" onclick="toggleCollectionsList()">
+        <div id="collections-section" style="margin-top: 24px; padding-top: 16px;">
+          <button class="sidebar-section-btn secondary" id="collections-section-btn" onclick="showCollectionsListView()">
             <span class="sidebar-section-icon" id="collections-section-icon"></span>
             <span class="section-btn-label">Collections</span>
           </button>
-          <button onclick="openCreateCollectionModal()" class="secondary" style="width:100%;margin-top:8px;font-size:0.8rem;display:none;" id="btn-create-collection">+ New Collection</button>
-          <ul id="collections-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
-            <!-- Filled by JS -->
-          </ul>
         </div>
 
         <!-- Series -->
-        <div id="series-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
-          <button onclick="showSeriesListView()" class="secondary sidebar-series-btn" style="width:100%;margin-bottom:8px;font-size:0.8rem;">
-            <img src="ico/series.svg" class="sidebar-section-icon" alt="Series" /> Series
-          </button>
-          <button onclick="openSeriesCreateView()" class="secondary" style="width:100%;font-size:0.8rem;">
-            + New Series
+        <div id="series-section" style="margin-top: 24px; padding-top: 16px;">
+          <button class="sidebar-section-btn secondary" id="series-section-btn" onclick="showSeriesListView()">
+            <span class="sidebar-section-icon" id="series-section-icon"></span>
+            <span class="section-btn-label">Series</span>
           </button>
         </div>
       </aside>
@@ -256,6 +250,40 @@
         <!-- Game list -->
         <section class="game-list" id="game-list">
           <!-- Game cards injected here -->
+        </section>
+
+        <!-- COLLECTIONS LIST VIEW (hidden by default) -->
+        <section id="collections-list-view" class="hidden">
+          <div class="series-list-header">
+            <h2><img src="ico/collection.svg" class="icon-img-sm" alt="Collections"/> Collections</h2>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="secondary" onclick="showCollectionsCreateView()">+ New Collection</button>
+            </div>
+          </div>
+          <div id="collections-grid" class="game-list">
+            <!-- Collection cards appear here -->
+          </div>
+        </section>
+
+        <!-- COLLECTIONS CREATE VIEW (hidden by default) -->
+        <section id="collections-create-view" class="hidden">
+          <div class="series-create-header">
+            <h2>Create New Collection</h2>
+            <button class="secondary" onclick="cancelCollectionsCreate()">← Back</button>
+          </div>
+          <div class="series-create-form">
+            <label>Collection Name
+              <input type="text" id="collections-create-name" placeholder="e.g., Summer Camp Games" />
+            </label>
+            <label>Description (optional)
+              <textarea id="collections-create-desc" style="width:100%;min-height:90px;padding:8px 10px;border-radius:var(--radius);border:1px solid var(--border-subtle);background:#11111c;color:var(--text-main);font-family:var(--font-main);font-size:0.9rem;"></textarea>
+            </label>
+          </div>
+          <div class="series-create-actions">
+            <button id="btn-collections-create-confirm" onclick="confirmCollectionsCreate()">
+              Create Collection
+            </button>
+          </div>
         </section>
 
         <!-- SERIES LIST VIEW (hidden by default) -->
@@ -532,6 +560,16 @@
         Release Year
         <input type="number" id="edit-game-year" placeholder="e.g. 2002" min="1970" max="2030" />
       </label>
+
+      <label>
+        Developer
+        <input type="text" id="edit-game-developer" placeholder="e.g. Square" autocomplete="off" />
+      </label>
+
+      <label>
+        Publisher
+        <input type="text" id="edit-game-publisher" placeholder="e.g. Nintendo" autocomplete="off" />
+      </label>
       
       <label>
         Description
@@ -793,6 +831,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=36"></script>
+  <script src="app.v2.js?v=37"></script>
 </body>
 </html>

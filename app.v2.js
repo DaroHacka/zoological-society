@@ -516,6 +516,8 @@ async function openEditGameModal(gameId) {
   document.getElementById("edit-game-title").value = game.title || "";
   document.getElementById("edit-game-genre").value = game.genre || "";
   document.getElementById("edit-game-year").value = game.release_year || "";
+  document.getElementById("edit-game-developer").value = game.developer || "";
+  document.getElementById("edit-game-publisher").value = game.publisher || "";
   document.getElementById("edit-game-description").value = game.description || "";
   
   // Load and set status checkboxes
@@ -563,6 +565,8 @@ async function onSaveGameEdit() {
   const genre = document.getElementById("edit-game-genre").value.trim();
   const yearVal = document.getElementById("edit-game-year").value.trim();
   const release_year = yearVal ? parseInt(yearVal) : null;
+  const developer = document.getElementById("edit-game-developer").value.trim();
+  const publisher = document.getElementById("edit-game-publisher").value.trim();
   const description = document.getElementById("edit-game-description").value.trim();
 
   if (!gameId || !title) {
@@ -573,7 +577,7 @@ async function onSaveGameEdit() {
   try {
     const result = await apiCall(`/games/${gameId}/update`, {
       method: "POST",
-      body: JSON.stringify({ title, genre, description, release_year }),
+      body: JSON.stringify({ title, genre, description, release_year, developer, publisher }),
     });
 
     // Save status
@@ -1146,81 +1150,91 @@ async function loadCollections() {
 }
 
 function renderCollections() {
-  const list = $("#collections-list");
-  const createBtn = $("#btn-create-collection");
-  if (!list) return;
+  const container = $("#collections-grid");
+  if (!container) return;
 
-  list.innerHTML = "";
+  container.innerHTML = "";
 
   if (collections.length === 0) {
-    list.style.display = "none";
-    if (createBtn) createBtn.style.display = "block";
+    container.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">No collections yet. Create one to get started!</p>';
     return;
   }
 
-  if (createBtn) createBtn.style.display = "block";
-
   collections.forEach((c) => {
-    const li = document.createElement("li");
-    li.className = c.id === currentCollectionId ? "collection-item active" : "collection-item";
-    li.dataset.id = c.id;
-    li.innerHTML = `
-      <span class="collection-name">${c.name}</span>
-      <span class="collection-count">${c.game_count}</span>
-      <button class="delete-collection-btn" onclick="deleteCollection(${c.id}, event)" title="Delete collection"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
-    `;
-    li.addEventListener("click", async (e) => {
-      if (!e.target.classList.contains("delete-collection-btn")) {
-        try {
-          await selectCollection(c.id);
-        } catch (err) {
-          console.error("selectCollection failed:", err);
-        }
-      }
-    });
-    list.appendChild(li);
+    container.appendChild(createCollectionGridCard(c));
+  });
+}
+
+function createCollectionGridCard(c) {
+  const card = document.createElement("article");
+  card.className = "game-card series-grid-card";
+
+  const coverUrl = c.cover_url ? toAbsoluteUrl(c.cover_url) : "";
+  const cover = coverUrl
+    ? `<img src="${toAbsoluteUrl(c.cover_url)}${c.cover_url.includes('?') ? '&' : '?'}t=${Date.now()}" alt="${c.name}" />`
+    : `<div class="no-cover">📂</div>`;
+
+  card.innerHTML = `
+    <div class="game-cover">${cover}</div>
+    <div class="game-title">${c.name}</div>
+    <div class="game-meta">
+      <span class="game-console-badge">${c.game_count} games</span>
+    </div>
+    <button class="series-delete-grid-btn" onclick="deleteCollection(${c.id}, event)" title="Delete collection"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
+  `;
+
+  card.addEventListener("click", (e) => {
+    if (e.target.closest('.series-delete-grid-btn')) return;
+    selectCollection(c.id);
   });
 
-  list.style.display = "block";
+  return card;
 }
 
-function toggleCollectionsList() {
-  const list = $("#collections-list");
-  const icon = $("#collections-toggle-icon");
-  const createBtn = $("#btn-create-collection");
-  if (!list) return;
+function showCollectionsListView() {
+  currentView = 'collections-list';
+  currentConsoleId = null;
+  currentCollectionId = null;
+  currentSeriesId = null;
+  currentSeriesGames = [];
+  activeFilter = null;
+  activeGenreFilter = null;
+  activeStatusFilter = null;
+  statusFilteredGames = [];
+  currentPage = 1;
 
-  const collapsed = list.style.display === "none" || list.style.display === "";
-  list.style.display = collapsed ? "block" : "none";
-  if (icon) icon.textContent = collapsed ? "▼" : "▶";
-  if (createBtn) createBtn.style.display = collapsed ? "block" : "none";
-  localStorage.setItem("collectionsListCollapsed", collapsed ? "false" : "true");
+  $("#homepage").classList.add("hidden");
+  $("#search-results").classList.add("hidden");
+  $(".console-summary").style.display = "none";
+  $(".alpha-index").style.display = "none";
+  $(".metadata-actions").style.display = "none";
+  $("#game-list").style.display = "none";
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
+  $("#collections-list-view").classList.remove("hidden");
+
+  savePageState();
+  loadCollections();
 }
 
-function loadCollectionsListState() {
-  const list = $("#collections-list");
-  const icon = $("#collections-toggle-icon");
-  const createBtn = $("#btn-create-collection");
-  if (!list) return;
-
-  list.style.display = "none";
-  if (icon) icon.textContent = "▶";
-  if (createBtn) createBtn.style.display = "none";
+function showCollectionsCreateView() {
+  currentView = 'collections-create';
+  document.getElementById("collections-create-name").value = "";
+  document.getElementById("collections-create-desc").value = "";
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.remove("hidden");
+  savePageState();
 }
 
-function openCreateCollectionModal() {
-  document.getElementById("create-collection-name").value = "";
-  document.getElementById("create-collection-desc").value = "";
-  toggleModal("#modal-create-collection", true);
+function cancelCollectionsCreate() {
+  showCollectionsListView();
 }
 
-function closeCreateCollectionModal() {
-  toggleModal("#modal-create-collection", false);
-}
-
-async function confirmCreateCollection() {
-  const name = document.getElementById("create-collection-name").value.trim();
-  const description = document.getElementById("create-collection-desc").value.trim();
+async function confirmCollectionsCreate() {
+  const name = document.getElementById("collections-create-name").value.trim();
+  const description = document.getElementById("collections-create-desc").value.trim();
 
   if (!name) {
     showToast("Collection name is required", "warning");
@@ -1234,8 +1248,8 @@ async function confirmCreateCollection() {
     });
     collections.push(collection);
     renderCollections();
-    toggleModal("#modal-create-collection", false);
     showToast(`Collection '${name}' created!`, "success");
+    showCollectionsListView();
   } catch (e) {
     // Error already shown
   }
@@ -1408,6 +1422,8 @@ function openSeriesCreateView() {
   $("#game-list").style.display = "none";
   $("#series-list-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
   $("#series-create-view").classList.remove("hidden");
 
   $("#series-create-name").value = "";
@@ -1594,6 +1610,8 @@ async function selectSeries(id) {
     $("#search-results").classList.add("hidden");
     $("#series-create-view").classList.add("hidden");
     $("#series-list-view").classList.add("hidden");
+    $("#collections-list-view").classList.add("hidden");
+    $("#collections-create-view").classList.add("hidden");
     $(".console-summary").style.display = "none";
     $(".alpha-index").style.display = "none";
     $(".metadata-actions").style.display = "none";
@@ -2547,6 +2565,8 @@ function goToHomepage() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
   $("#game-list").style.display = "";
   
   renderHomepage();
@@ -2569,6 +2589,8 @@ function renderHomepage() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
   
   // Load stats and recently viewed
   loadStats();
@@ -2586,6 +2608,8 @@ function showConsoleView() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
   
   // Show console view elements
   $(".console-summary").style.display = "flex";
@@ -2906,6 +2930,14 @@ function loadPageState() {
 
   if (savedView === 'series-list') {
     return { view: 'series-list' };
+  }
+
+  if (savedView === 'collections-list') {
+    return { view: 'collections-list' };
+  }
+
+  if (savedView === 'collections-create') {
+    return { view: 'collections-create' };
   }
   
   return { view: 'homepage' };
@@ -3493,7 +3525,6 @@ async function loadInitialData() {
 
   // Load collections
   await loadCollections();
-  loadCollectionsListState();
 
   // Load series
   await loadSeries();
@@ -3528,6 +3559,16 @@ async function loadInitialData() {
 
   if (savedState.view === 'series-list') {
     showSeriesListView();
+    return;
+  }
+
+  if (savedState.view === 'collections-list') {
+    showCollectionsListView();
+    return;
+  }
+
+  if (savedState.view === 'collections-create') {
+    showCollectionsCreateView();
     return;
   }
   
@@ -6053,7 +6094,8 @@ function initSidebarIcons() {
   setSidebarIcon("console-section-icon", consoleIcon);
   setSidebarIcon("genre-section-icon", genreIcon);
   setSidebarIcon("status-section-icon", "/ico/status.svg");
-  setSidebarIcon("collection-section-icon", "/ico/collection.svg");
+  setSidebarIcon("collections-section-icon", "/ico/collection.svg");
+  setSidebarIcon("series-section-icon", "/ico/series.svg");
   setSidebarIcon("detail-section-icon", "/ico/game-details.svg");
 }
 

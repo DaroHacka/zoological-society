@@ -311,6 +311,8 @@ class GameUpdateRequest(BaseModel):
     genre: Optional[str] = None
     description: Optional[str] = None
     release_year: Optional[int] = None
+    publisher: Optional[str] = None
+    developer: Optional[str] = None
 
 class AddSingleGameRequest(BaseModel):
     title: str
@@ -3978,6 +3980,8 @@ def update_game(game_id: int, data: GameUpdateRequest):
         title = data.title.strip()
         genre = data.genre.strip() if data.genre else ""
         description = data.description.strip() if data.description else ""
+        publisher = data.publisher.strip() if data.publisher else ""
+        developer = data.developer.strip() if data.developer else ""
 
         if not title:
             raise HTTPException(status_code=400, detail="Title is required")
@@ -4000,10 +4004,11 @@ def update_game(game_id: int, data: GameUpdateRequest):
         _exec_write(cur,
             """
             UPDATE games
-            SET title = ?, genre = ?, description = ?, release_year = COALESCE(?, release_year), updated_at = ?
+            SET title = ?, genre = ?, description = ?, release_year = COALESCE(?, release_year),
+                publisher = ?, developer = ?, updated_at = ?
             WHERE id = ?;
             """,
-            (title, genre or None, description or None, data.release_year, now, game_id),
+            (title, genre or None, description or None, data.release_year, publisher or None, developer or None, now, game_id),
         )
 
         conn.commit()
@@ -4382,6 +4387,7 @@ class CollectionResponse(CollectionBase):
     id: int
     game_count: int = 0
     created_at: str
+    cover_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -4470,7 +4476,11 @@ def get_collections():
         cur = conn.cursor()
         cur.execute("""
             SELECT c.id, c.name, c.description, c.created_at,
-                   COUNT(cg.id) as game_count
+                   COUNT(cg.id) as game_count,
+                   (SELECT g.cover_url FROM collection_games cg2
+                      JOIN games g ON cg2.game_id = g.id
+                     WHERE cg2.collection_id = c.id AND g.cover_url IS NOT NULL AND g.cover_url != ''
+                     ORDER BY RANDOM() LIMIT 1) as cover_url
             FROM collections c
             LEFT JOIN collection_games cg ON c.id = cg.collection_id
             GROUP BY c.id
