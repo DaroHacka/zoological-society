@@ -1125,17 +1125,11 @@ function toggleConsoleList() {
 }
 
 function loadConsoleListState() {
-  const collapsed = localStorage.getItem("consoleListCollapsed") === "true";
   const consoleList = $("#console-list");
   const icon = $("#console-list-toggle-icon");
-  
-  if (collapsed) {
-    consoleList.style.display = "none";
-    if (icon) icon.textContent = "▶";
-  } else {
-    consoleList.style.display = "block";
-    if (icon) icon.textContent = "▼";
-  }
+
+  consoleList.style.display = "none";
+  if (icon) icon.textContent = "▶";
 }
 
 // -----------------------------------------------------------
@@ -1204,21 +1198,14 @@ function toggleCollectionsList() {
 }
 
 function loadCollectionsListState() {
-  const collapsed = localStorage.getItem("collectionsListCollapsed") !== "false";
   const list = $("#collections-list");
   const icon = $("#collections-toggle-icon");
   const createBtn = $("#btn-create-collection");
   if (!list) return;
 
-  if (collapsed) {
-    list.style.display = "none";
-    if (icon) icon.textContent = "▶";
-    if (createBtn) createBtn.style.display = "none";
-  } else {
-    list.style.display = "block";
-    if (icon) icon.textContent = "▼";
-    if (createBtn) createBtn.style.display = "block";
-  }
+  list.style.display = "none";
+  if (icon) icon.textContent = "▶";
+  if (createBtn) createBtn.style.display = "none";
 }
 
 function openCreateCollectionModal() {
@@ -3685,6 +3672,7 @@ async function selectConsole(id) {
   renderConsoles();
   renderCollections();
   renderStatusFilters();
+  loadDetailFilters();
   updateConsoleSummary();
   await loadGamesForConsole(id);
   extractGenres();
@@ -4832,7 +4820,7 @@ function renderGameDetail(game) {
       </div>
       ${screenshotsHtml}
       <div class="game-detail-collections" id="game-detail-collections">
-        <h3>Collections</h3>
+        <h3><img src="/ico/collection.svg" class="icon-img-sm" alt="Collections"/> Collections</h3>
         <div id="game-collection-tags" class="collection-tags"></div>
         <div class="add-to-collection" style="margin-top:8px;">
           <input type="text" id="collection-input" placeholder="Type collection name to add..." autocomplete="off" />

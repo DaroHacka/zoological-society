@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=35" />
+  <link rel="stylesheet" href="style.css?v=36" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -47,9 +47,9 @@
       <aside class="sidebar" id="sidebar">
         <button class="sidebar-section-btn" id="consoles-section-btn" onclick="toggleConsoleList()">
           <span class="sidebar-section-icon" id="console-section-icon"></span>
-          <span>Consoles</span>
+          <span class="section-btn-label">Consoles</span>
         </button>
-        <ul id="console-list">
+        <ul id="console-list" style="display:none;">
           <!-- Filled by JS -->
         </ul>
 
@@ -57,7 +57,7 @@
         <div id="genre-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
           <button class="sidebar-section-btn" id="genre-section-btn" onclick="toggleGenreFilter()">
             <span class="sidebar-section-icon" id="genre-section-icon"></span>
-            <span>Genres</span>
+            <span class="section-btn-label">Genres</span>
             <span id="genre-edit-btn" class="genre-edit-btn hidden" onclick="event.stopPropagation(); toggleGenreEditMode()" title="Edit Genres"></span>
           </button>
           <ul id="genre-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
@@ -69,7 +69,7 @@
         <div id="detail-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px; display: none;">
           <button class="sidebar-section-btn" id="detail-section-btn" onclick="toggleDetailFilter()">
             <span class="sidebar-section-icon" id="detail-section-icon"></span>
-            <span>Game Details</span>
+            <span class="section-btn-label">Game Details</span>
           </button>
           <div id="detail-filter-content" style="display: none;">
             <div class="detail-filter-group">
@@ -91,7 +91,7 @@
         <div id="status-filter-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
           <button class="sidebar-section-btn" id="status-section-btn" onclick="toggleStatusFilter()">
             <span class="sidebar-section-icon" id="status-section-icon"></span>
-            <span>Status</span>
+            <span class="section-btn-label">Status</span>
           </button>
           <ul id="status-filter-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
             <li data-status="favorite" class="status-filter-item" onclick="applyStatusFilter('favorite')">⭐ Favorites <span class="count" id="count-favorite">0</span></li>
@@ -107,7 +107,7 @@
         <div id="collections-section" style="margin-top: 24px; border-top: 1px solid var(--border-subtle); padding-top: 16px;">
           <button class="sidebar-section-btn" id="collections-section-btn" onclick="toggleCollectionsList()">
             <span class="sidebar-section-icon" id="collections-section-icon"></span>
-            <span>Collections</span>
+            <span class="section-btn-label">Collections</span>
           </button>
           <button onclick="openCreateCollectionModal()" class="secondary" style="width:100%;margin-top:8px;font-size:0.8rem;display:none;" id="btn-create-collection">+ New Collection</button>
           <ul id="collections-list" style="list-style: none; padding: 0; margin: 8px 0 0; display: none;">
@@ -793,6 +793,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=35"></script>
+  <script src="app.v2.js?v=36"></script>
 </body>
 </html>
