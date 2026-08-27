@@ -142,23 +142,23 @@ body {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding-left: 110px;
+  padding-left: 122px;
 }
 
 #header-logo {
   position: absolute;
   left: 20px;
-  bottom: -30px;
-  width: 90px;
-  height: 90px;
+  bottom: -32px;
+  width: 95px;
+  height: 95px;
   object-fit: contain;
   z-index: 3;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5));
 }
 
 .homepage-logo {
-  width: 56px;
-  height: 56px;
+  width: 85px;
+  height: 85px;
   vertical-align: middle;
   object-fit: contain;
   margin: 0 6px;
