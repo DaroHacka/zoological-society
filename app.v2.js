@@ -5779,7 +5779,7 @@ function applyTheme(theme) {
       header.style.backgroundSize = "100% auto";
       header.style.backgroundPosition = "center";
       header.style.height = Math.min(this.naturalHeight, 200) + "px";
-      header.style.overflow = "hidden";
+      header.style.overflow = "visible";
     };
     img.onerror = function() {
       if (gen !== headerGeneration) return; // stale — don't clear
