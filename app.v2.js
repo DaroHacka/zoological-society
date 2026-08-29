@@ -5777,7 +5777,7 @@ function applyTheme(theme) {
       header.style.backgroundImage = `url("${theme.headerImage}")`;
       header.style.backgroundRepeat = "no-repeat";
       header.style.backgroundSize = "100% auto";
-      header.style.backgroundPosition = "center";
+      header.style.backgroundPosition = "top";
       header.style.height = Math.min(this.naturalHeight, 200) + "px";
       header.style.overflow = "visible";
     };
