@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=45" />
+  <link rel="stylesheet" href="style.css?v=46" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -430,6 +430,42 @@
         Accent color
         <input type="color" id="theme-accent-color" value="#ffb400" />
       </label>
+
+      <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
+      <fieldset style="border: none; margin: 0; padding: 0;">
+        <legend style="padding: 0; font-size: 1.2rem;">Icon color</legend>
+        <label style="display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer;">
+          <input type="checkbox" id="theme-icon-match-accent" />
+          Match accent color
+        </label>
+        <div id="theme-icon-custom" class="hidden">
+          <label>
+            Icon color
+            <input type="color" id="theme-icon-color" value="#ffffff" />
+          </label>
+          <label style="display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer;">
+            <input type="checkbox" id="theme-icon-gradient" />
+            Use gradient (two colors)
+          </label>
+          <div id="theme-icon-gradient-colors" class="hidden">
+            <label style="display: inline-block; margin-right: 12px;">
+              Color 1
+              <input type="color" id="theme-icon-color1" value="#ffffff" />
+            </label>
+            <label style="display: inline-block;">
+              Color 2
+              <input type="color" id="theme-icon-color2" value="#a0a0b5" />
+            </label>
+            <label style="display: block; margin-top: 8px;">
+              Gradient direction
+              <select id="theme-icon-gradient-direction">
+                <option value="to bottom">Top → Bottom</option>
+                <option value="to bottom right">Diagonal</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </fieldset>
       <div id="theme-current-header" class="theme-current-header hidden">
         <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted);">Current header image:</p>
         <div style="position: relative; display: inline-block;">
@@ -832,6 +868,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=39"></script>
+  <script src="app.v2.js?v=43"></script>
 </body>
 </html>

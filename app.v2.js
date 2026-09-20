@@ -1879,6 +1879,8 @@ function showSeriesListView() {
   $("#game-list").style.display = "none";
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
   $("#series-list-view").classList.remove("hidden");
 
   savePageState();
@@ -3113,6 +3115,9 @@ document.addEventListener("DOMContentLoaded", () => {
     applySavedTheme();
     initLightboxHandlers();
     initTabHandlers();
+    initThemeIconControls();
+    convertAllLineArtIcons();
+    initIconMaskObserver();
   } catch (e) {
     console.error("Core initialization error:", e);
   }
@@ -5463,7 +5468,17 @@ async function onSaveTheme() {
     }
   }
 
-  const theme = { bgColor, accent, headerImage };
+  const theme = {
+    bgColor,
+    accent,
+    headerImage,
+    iconMatchAccent: $("#theme-icon-match-accent").checked,
+    iconColor: $("#theme-icon-color").value,
+    iconGradient: $("#theme-icon-gradient").checked,
+    iconColor1: $("#theme-icon-color1").value,
+    iconColor2: $("#theme-icon-color2").value,
+    iconGradientDirection: $("#theme-icon-gradient-direction").value,
+  };
   localStorage.setItem("gameArchiveTheme", JSON.stringify(theme));
 
   applyTheme(theme);
@@ -5647,6 +5662,23 @@ async function onSaveApiKeys() {
   if (statusEl) await refreshApiKeyStatus();
 }
 
+function updateThemeIconVisibility() {
+  const matchAccent = $("#theme-icon-match-accent");
+  const customSection = $("#theme-icon-custom");
+  const gradientCb = $("#theme-icon-gradient");
+  const gradientColors = $("#theme-icon-gradient-colors");
+
+  if (customSection) customSection.classList.toggle("hidden", matchAccent && matchAccent.checked);
+  if (gradientColors && gradientCb) gradientColors.classList.toggle("hidden", !gradientCb.checked);
+}
+
+function initThemeIconControls() {
+  const matchAccent = $("#theme-icon-match-accent");
+  const gradientCb = $("#theme-icon-gradient");
+  if (matchAccent) matchAccent.addEventListener("change", updateThemeIconVisibility);
+  if (gradientCb) gradientCb.addEventListener("change", updateThemeIconVisibility);
+}
+
 async function populateThemeModal() {
   const currentHeaderSection = $("#theme-current-header");
   const currentHeaderImg = $("#theme-current-header-img");
@@ -5700,8 +5732,24 @@ async function populateThemeModal() {
         const accentInput = $("#theme-accent-color");
         if (accentInput) accentInput.value = theme.accent;
       }
+      if (theme.iconMatchAccent !== undefined) {
+        const iconAccentCb = $("#theme-icon-match-accent");
+        if (iconAccentCb) iconAccentCb.checked = !!theme.iconMatchAccent;
+      }
+      const iconColorInput = $("#theme-icon-color");
+      if (iconColorInput && theme.iconColor) iconColorInput.value = theme.iconColor;
+      const iconGradientCb = $("#theme-icon-gradient");
+      if (iconGradientCb && theme.iconGradient !== undefined) iconGradientCb.checked = !!theme.iconGradient;
+      const iconColor1Input = $("#theme-icon-color1");
+      if (iconColor1Input && theme.iconColor1) iconColor1Input.value = theme.iconColor1;
+      const iconColor2Input = $("#theme-icon-color2");
+      if (iconColor2Input && theme.iconColor2) iconColor2Input.value = theme.iconColor2;
+      const iconDirSel = $("#theme-icon-gradient-direction");
+      if (iconDirSel && theme.iconGradientDirection) iconDirSel.value = theme.iconGradientDirection;
     } catch (e) {}
   }
+
+  updateThemeIconVisibility();
 
   // Load default fetch sources
   try {
@@ -5759,7 +5807,21 @@ function applySavedTheme() {
 
 let headerGeneration = 0;
 
+function applyIconColorTheme(theme) {
+  let fill = "#ffffff";
+  if (theme.iconMatchAccent) {
+    fill = "var(--accent)";
+  } else if (theme.iconGradient && theme.iconColor1 && theme.iconColor2) {
+    const dir = theme.iconGradientDirection === "to bottom right" ? "135deg" : "180deg";
+    fill = `linear-gradient(${dir}, ${theme.iconColor1}, ${theme.iconColor2})`;
+  } else if (theme.iconColor) {
+    fill = theme.iconColor;
+  }
+  document.documentElement.style.setProperty("--icon-fill", fill);
+}
+
 function applyTheme(theme) {
+  applyIconColorTheme(theme);
   if (theme.bgColor) {
     document.documentElement.style.setProperty("--bg-color", theme.bgColor);
     document.body.style.background = theme.bgColor;
@@ -6082,6 +6144,68 @@ function setSidebarIcon(elId, src) {
   const el = document.getElementById(elId);
   if (!el) return;
   el.innerHTML = `<img src="${toAbsoluteUrl(src)}" alt="" />`;
+  convertLineArtIcon(el.querySelector("img"));
+}
+
+// -----------------------------------------------------------
+// Line-art icon recoloring (mask technique — no SVG edits)
+// Turns black line-art <img> icons into masked spans tinted by --icon-fill
+// -----------------------------------------------------------
+function isLineArtIconEl(img) {
+  if (!img || img.tagName !== "IMG") return false;
+  const src = img.getAttribute("src") || "";
+  const abs = toAbsoluteUrl(src);
+  // Skip logos
+  if (/logo\.png/.test(abs) || /zoological/i.test(abs)) return false;
+  // Line-art icons only:
+  //  - top-level SVGs living directly in /ico/
+  //  - rotating console/genre button icons in /ico/consoles and /ico/genre
+  // NOT the console model logos in /icons/ (console icons folder) — colorful brand art
+  const isTopLevelSvg = /\/ico\/[^/]+\.svg(\?|$)/.test(abs);
+  const isRotatingIcon = /\/ico\/(consoles|genre)\/[^/]+\.(svg|png)(\?|$)/.test(abs);
+  return isTopLevelSvg || isRotatingIcon;
+}
+
+function convertLineArtIcon(img) {
+  if (!img || img.dataset.iconMasked === "1") return;
+  if (!isLineArtIconEl(img)) return;
+
+  const src = img.getAttribute("src");
+  const abs = toAbsoluteUrl(src);
+  const span = document.createElement("span");
+  span.className = (img.className || "") + " mask-icon";
+  span.style.setProperty("--icon-mask", `url("${abs}") center / contain no-repeat`);
+
+  const alt = img.getAttribute("alt") || "";
+  if (alt) {
+    span.setAttribute("role", "img");
+    span.setAttribute("aria-label", alt);
+  }
+  img.dataset.iconMasked = "1";
+  img.replaceWith(span);
+}
+
+function convertAllLineArtIcons(root) {
+  const scope = root || document;
+  scope.querySelectorAll("img").forEach((img) => convertLineArtIcon(img));
+}
+
+function initIconMaskObserver() {
+  const observer = new MutationObserver((mutations) => {
+    const targets = [];
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.tagName === "IMG") {
+          targets.push(node);
+        } else if (node.querySelectorAll) {
+          node.querySelectorAll("img").forEach((img) => targets.push(img));
+        }
+      }
+    }
+    targets.forEach((img) => convertLineArtIcon(img));
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 function initSidebarIcons() {
