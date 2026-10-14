@@ -1206,7 +1206,7 @@ function showCollectionsListView() {
   $("#homepage").classList.add("hidden");
   $("#search-results").classList.add("hidden");
   $(".console-summary").style.display = "none";
-  $(".alpha-index").style.display = "none";
+  $("#console-toolbar").style.display = "none";
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "none";
   $("#series-create-view").classList.add("hidden");
@@ -1318,9 +1318,9 @@ function renderCollectionGames() {
   titleEl.innerHTML = collection ? `<img src="/ico/collection.svg" class="icon-img-sm" alt="Collection"/> ${collection.name}` : "Collection";
 
   // Hide metadata actions for collection view
-  const alpha = $("#alpha-index");
+  const toolbar = $("#console-toolbar");
   const meta = $("#metadata-actions");
-  if (alpha) alpha.style.display = "none";
+  if (toolbar) toolbar.style.display = "none";
   if (meta) meta.style.display = "none";
 
   const rescanBtn = $("#btn-rescan-console");
@@ -1345,7 +1345,7 @@ function renderCollectionGames() {
       : `<div class="no-cover">No cover</div>`;
 
     card.innerHTML = `
-      <div class="game-cover" style="position: relative;">
+      <div class="game-cover ${aspectClassForConsole(g.console_id)}" style="position: relative;">
         ${cover}
         <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.game_id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
       </div>
@@ -1417,7 +1417,7 @@ function openSeriesCreateView() {
   $("#homepage").classList.add("hidden");
   $("#search-results").classList.add("hidden");
   $(".console-summary").style.display = "none";
-  $(".alpha-index").style.display = "none";
+  $("#console-toolbar").style.display = "none";
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "none";
   $("#series-list-view").classList.add("hidden");
@@ -1483,7 +1483,7 @@ function onSeriesCreateNameInput() {
           : `<div class="no-cover">No cover</div>`;
 
         card.innerHTML = `
-          <div class="game-cover">${cover}</div>
+          <div class="game-cover ${aspectClassForConsole(g.console_id)}">${cover}</div>
           <div class="game-title">${g.title}</div>
           <div class="game-meta">
             <span class="game-console-badge">${g.console_name}</span>
@@ -1613,7 +1613,7 @@ async function selectSeries(id) {
     $("#collections-list-view").classList.add("hidden");
     $("#collections-create-view").classList.add("hidden");
     $(".console-summary").style.display = "none";
-    $(".alpha-index").style.display = "none";
+    $("#console-toolbar").style.display = "none";
     $(".metadata-actions").style.display = "none";
     $("#game-list").style.display = "none";
     $("#series-detail-view").classList.remove("hidden");
@@ -1663,7 +1663,7 @@ function renderSeriesDetail() {
     const addBtn = g.is_missing ? `<button class="series-add-btn" onclick="addMissingToArchive(${g.id}, event)" title="Add to archive">＋</button>` : '';
 
     card.innerHTML = `
-      <div class="game-cover" style="position: relative;">
+      <div class="game-cover ${aspectClassForConsole(g.console_id)}" style="position: relative;">
         ${cover}
         ${missingBadge}
         ${addBtn}
@@ -1874,7 +1874,7 @@ function showSeriesListView() {
   $("#homepage").classList.add("hidden");
   $("#search-results").classList.add("hidden");
   $(".console-summary").style.display = "none";
-  $(".alpha-index").style.display = "none";
+  $("#console-toolbar").style.display = "none";
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "none";
   $("#series-create-view").classList.add("hidden");
@@ -2585,7 +2585,7 @@ function renderHomepage() {
   
   // Hide console/series views
   $(".console-summary").style.display = "none";
-  $(".alpha-index").style.display = "none";
+  $("#console-toolbar").style.display = "none";
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "";
   $("#series-create-view").classList.add("hidden");
@@ -2615,7 +2615,7 @@ function showConsoleView() {
   
   // Show console view elements
   $(".console-summary").style.display = "flex";
-  $(".alpha-index").style.display = "block";
+  $("#console-toolbar").style.display = "flex";
   $(".metadata-actions").style.display = "flex";
   $("#game-list").style.display = "grid";
   
@@ -2624,6 +2624,8 @@ function showConsoleView() {
   const addGameBtn = $("#btn-add-game");
   if (rescanBtn) rescanBtn.style.display = "";
   if (addGameBtn) addGameBtn.style.display = "";
+
+  renderThumbFormatControl();
 }
 
 // -----------------------------------------------------------
@@ -2646,7 +2648,7 @@ async function performGlobalSearch(query) {
     
     // Hide console-specific elements
     $(".console-summary").style.display = "none";
-    $(".alpha-index").style.display = "none";
+    $("#console-toolbar").style.display = "none";
     $(".metadata-actions").style.display = "none";
     $("#game-list").style.display = "none";
     
@@ -2658,6 +2660,21 @@ async function performGlobalSearch(query) {
   } finally {
     setLoading(false);
   }
+}
+
+// -----------------------------------------------------------
+// Thumbnail form factor (per-console aspect ratio)
+// -----------------------------------------------------------
+const THUMB_ASPECTS = ["portrait", "square", "landscape"];
+
+function getConsoleAspect(consoleId) {
+  if (consoleId === null || consoleId === undefined) return "portrait";
+  const c = (consoles || []).find((x) => x.id === consoleId);
+  return (c && c.thumbnail_aspect) || "portrait";
+}
+
+function aspectClassForConsole(consoleId) {
+  return "aspect-" + getConsoleAspect(consoleId);
 }
 
 // -----------------------------------------------------------
@@ -2675,8 +2692,10 @@ function createGameCard(game, consoleName) {
 
   const yearBadge = game.release_year ? `<span class="game-year-badge">${game.release_year}</span>` : '';
 
+  const coverConsoleId = game.console_id != null ? game.console_id : currentConsoleId;
+
   card.innerHTML = `
-    <div class="game-cover" style="position: relative;">
+    <div class="game-cover ${aspectClassForConsole(coverConsoleId)}" style="position: relative;">
       ${cover}
       <button class="game-info-btn" onclick="showGameInfo(event, ${game.id})" title="Game info">ℹ️</button>
       ${yearBadge}
@@ -3112,6 +3131,7 @@ document.addEventListener("DOMContentLoaded", () => {
   try {
     bindUI();
     renderAlphaIndex();
+    renderThumbFormatControl();
     applySavedTheme();
     initLightboxHandlers();
     initTabHandlers();
@@ -3913,6 +3933,24 @@ function showCoverFetchDialog() {
               Searches for box cover images. Better results for most games.
             </p>
           </div>
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+              <input type="radio" name="fetch-source" value="bing" style="margin-right: 8px;">
+              Bing
+            </label>
+            <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+              Web image search via Bing. A good alternative when DuckDuckGo is rate-limited.
+            </p>
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+              <input type="radio" name="fetch-source" value="auto" style="margin-right: 8px;">
+              Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)
+            </label>
+            <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+              Tries each provider in turn until a cover is found.
+            </p>
+          </div>
           <div>
             <label style="display: block; margin-bottom: 8px; font-weight: bold;">
               <input type="radio" name="fetch-source" value="rawg" style="margin-right: 8px;">
@@ -4081,7 +4119,7 @@ async function onFetchCovers() {
         if (data.status === 'rate_limited') {
           if (!rateLimitedShown) {
             rateLimitedShown = true;
-            showToast("DuckDuckGo is rate-limiting this IP - falling back to TheGamesDB where possible", "warning");
+            showToast("DuckDuckGo is rate-limiting this IP - stopping the run", "warning");
           }
           return;
         }
@@ -4103,7 +4141,9 @@ async function onFetchCovers() {
           // Remove progress UI
           progressContainer.remove();
           
-          if (data.cancelled) {
+          if (data.aborted_by_rate_limit) {
+            showToast(`Cover fetch aborted - DuckDuckGo is rate-limiting this IP. ${data.updated} updated, ${data.skipped} skipped so far.`, "warning");
+          } else if (data.cancelled) {
             showToast(`Cover fetch cancelled - ${data.processed}/${data.total} processed (${data.updated} updated, ${data.skipped} skipped)`, "warning");
           } else {
             const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
@@ -4200,7 +4240,7 @@ async function onFetchScreenshots() {
         if (data.status === 'rate_limited') {
           if (!rateLimitedShown) {
             rateLimitedShown = true;
-            showToast("DuckDuckGo is rate-limiting this IP - falling back to TheGamesDB/RAWG where possible", "warning");
+            showToast("DuckDuckGo is rate-limiting this IP - stopping the run", "warning");
           }
           return;
         }
@@ -4225,7 +4265,9 @@ async function onFetchScreenshots() {
           const elapsed = data.elapsed ? ` in ${data.elapsed}s` : '';
           const summary = `Fetched screenshots: ${data.updated} updated, ${data.skipped} skipped - ${data.processed}/${data.total}`;
 
-          if (data.cancelled) {
+          if (data.aborted_by_rate_limit) {
+            showToast(`Screenshot fetch aborted - DuckDuckGo is rate-limiting this IP. ${summary}`, "warning");
+          } else if (data.cancelled) {
             showToast(`Screenshot fetch cancelled - ${summary}${elapsed}`, "warning");
           } else {
             showToast(`${summary}${elapsed}`, "success");
@@ -4278,6 +4320,24 @@ function showScreenshotFetchDialog() {
               </label>
               <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
                 Web image search. Falls back to TheGamesDB and RAWG automatically.
+              </p>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+                <input type="radio" name="screenshot-source" value="bing" style="margin-right: 8px;">
+                Bing
+              </label>
+              <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+                Web image search via Bing. A good alternative when DuckDuckGo is rate-limited.
+              </p>
+            </div>
+            <div style="margin-bottom: 12px;">
+              <label style="display: block; margin-bottom: 8px; font-weight: bold;">
+                <input type="radio" name="screenshot-source" value="auto" style="margin-right: 8px;">
+                Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)
+              </label>
+              <p style="margin: 5px 0 8px; color: var(--text-muted); font-size: 0.85rem;">
+                Tries each provider in turn until screenshots are found.
               </p>
             </div>
             <div style="margin-bottom: 12px;">
@@ -4424,6 +4484,79 @@ function applyFilter(letter) {
 }
 
 // -----------------------------------------------------------
+// Thumbnail format control (per-console aspect ratio picker)
+// -----------------------------------------------------------
+const THUMB_ASPECT_META = {
+  portrait: { label: "Portrait", icon: "/ico/portrait.svg" },
+  square: { label: "Square", icon: "/ico/square.svg" },
+  landscape: { label: "Landscape", icon: "/ico/landscape.svg" },
+};
+
+function currentThumbAspect() {
+  return getConsoleAspect(currentConsoleId);
+}
+
+function renderThumbFormatControl() {
+  const icon = $("#thumb-format-icon");
+  const menu = $("#thumb-format-menu");
+  if (!icon || !menu) return;
+  const current = currentThumbAspect();
+  const meta = THUMB_ASPECT_META[current] || THUMB_ASPECT_META.portrait;
+  icon.style.setProperty("--icon-mask", `url("${meta.icon}") center / contain no-repeat`);
+  const btn = $("#thumb-format-btn");
+  if (btn) btn.title = "Thumbnail format: " + meta.label;
+
+  menu.innerHTML = "";
+  THUMB_ASPECTS.forEach((aspect) => {
+    const m = THUMB_ASPECT_META[aspect];
+    const item = document.createElement("button");
+    item.className = "thumb-format-item" + (aspect === current ? " active" : "");
+    item.innerHTML = `<span class="mask-icon icon-img-sm" style="--icon-mask: url('${m.icon}') center / contain no-repeat;"></span><span>${m.label}</span>`;
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setThumbFormat(aspect);
+    });
+    menu.appendChild(item);
+  });
+}
+
+function toggleThumbFormatMenu(event) {
+  if (event) event.stopPropagation();
+  const menu = $("#thumb-format-menu");
+  if (!menu) return;
+  menu.classList.toggle("hidden");
+}
+
+function closeThumbFormatMenu() {
+  const menu = $("#thumb-format-menu");
+  if (menu) menu.classList.add("hidden");
+}
+
+async function setThumbFormat(aspect) {
+  closeThumbFormatMenu();
+  if (!currentConsoleId || !THUMB_ASPECTS.includes(aspect)) return;
+  if (currentThumbAspect() === aspect) return;
+  try {
+    const res = await fetch(`${API}/consoles/${currentConsoleId}/thumbnail-aspect`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ aspect }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const updated = await res.json();
+    const c = consoles.find((x) => x.id === currentConsoleId);
+    if (c) c.thumbnail_aspect = updated.aspect || aspect;
+    renderThumbFormatControl();
+    renderGamesForCurrentConsole();
+  } catch (e) {
+    console.error("Failed to set thumbnail format:", e);
+    showToast("Failed to change thumbnail format", "error");
+  }
+}
+
+document.addEventListener("click", () => closeThumbFormatMenu());
+
+// -----------------------------------------------------------
 // Games rendering (with filtering + pagination)
 // -----------------------------------------------------------
 function renderGamesForCurrentConsole() {
@@ -4496,7 +4629,7 @@ function renderGamesForCurrentConsole() {
       : `<div class="no-cover">No cover</div>`;
 
     card.innerHTML = `
-      <div class="game-cover" style="position: relative;">
+      <div class="game-cover ${aspectClassForConsole(g.console_id != null ? g.console_id : currentConsoleId)}" style="position: relative;">
         ${cover}
         <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>
@@ -4616,7 +4749,7 @@ function renderGlobalStatusFilteredGames(container) {
       : `<div class="no-cover">No cover</div>`;
 
     card.innerHTML = `
-      <div class="game-cover" style="position: relative;">
+      <div class="game-cover ${aspectClassForConsole(g.console_id)}" style="position: relative;">
         ${cover}
         <button class="game-card-fetch-btn" onclick="fetchSingleGameMetadata(${g.id}, event)" title="Fetch metadata"><img class="icon-img-sm" src="/ico/refresh.svg" alt="Refresh"/></button>
         <button class="game-card-edit-cover" onclick="openCoverUploadModal(${g.id})" title="Upload cover">📷</button>

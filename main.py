@@ -250,14 +250,21 @@ class ConsoleBase(BaseModel):
     name: str
     path: Optional[str] = None  # Optional - can create console without path
     slug: Optional[str] = None  # Canonical catalog identity (optional on input)
+    thumbnail_aspect: Optional[str] = None  # 'portrait' | 'square' | 'landscape'
 
 class ConsoleResponse(ConsoleBase):
     id: int
     game_count: int = 0
     icon_url: Optional[str] = None
+    thumbnail_aspect: str = "portrait"
 
     class Config:
         from_attributes = True
+
+VALID_THUMBNAIL_ASPECTS = ("portrait", "square", "landscape")
+
+class ThumbnailAspectRequest(BaseModel):
+    aspect: str
 
 class ApiKeyRequest(BaseModel):
     key: str
@@ -363,6 +370,7 @@ class SearchResultGame(BaseModel):
     genre: Optional[str] = None
     cover_url: Optional[str] = None
     console_name: str
+    console_id: Optional[int] = None
     is_completed: bool = False
     is_printed: bool = False
     release_year: Optional[int] = None
@@ -461,7 +469,7 @@ def get_default_source():
 @app.put("/api/settings/default-source")
 def set_default_source(body: DefaultSourceRequest):
     """Set default fetch sources for single-game operations"""
-    valid = ("auto", "duckduckgo", "tgdb", "rawg")
+    valid = ("auto", "bing", "duckduckgo", "tgdb", "rawg")
     if body.cover_source is not None:
         if body.cover_source not in valid:
             raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of: {', '.join(valid)}")
@@ -733,6 +741,9 @@ def init_db():
     if "slug" not in existing_cols:
         cur.execute("ALTER TABLE consoles ADD COLUMN slug TEXT")
         logger.info("Migration: added consoles.slug column")
+    if "thumbnail_aspect" not in existing_cols:
+        cur.execute("ALTER TABLE consoles ADD COLUMN thumbnail_aspect TEXT DEFAULT 'portrait'")
+        logger.info("Migration: added consoles.thumbnail_aspect column")
 
     try:
         import console_catalog
@@ -1031,6 +1042,13 @@ def fetch_rawg_screenshots(rawg_id: int, limit: int = 5) -> List[dict]:
         return []
 
 # -------------------------------------------------------------------
+# Image-search User-Agent (shared by DuckDuckGo and Bing)
+# -------------------------------------------------------------------
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36")
+
+
+# -------------------------------------------------------------------
 # DuckDuckGo Image Search helpers
 # -------------------------------------------------------------------
 
@@ -1040,20 +1058,196 @@ class DDGRateLimited(Exception):
     pass
 
 
-def _ddgs_images(query: str, **kwargs) -> list:
-    """Single entry point for DDGS image searches.
+# DuckDuckGo answers non-browser clients with an HTTP 202 'anomaly' challenge
+# that requires JavaScript to solve. We enforce a minimum gap between requests
+# and a global cool-down after any challenge so we fail fast instead of firing
+# retry storms that only extend the block.
+_DDG_MIN_INTERVAL = 5.0      # seconds between DDG searches
+_DDG_BLOCK_SECONDS = 1800    # base cool-down after a detected challenge
+_ddg_last_call = 0.0
+_ddg_blocked_until = 0.0
 
-    Uses the only backend supported by ddgs>=9 ('duckduckgo'), detects
-    rate limiting and raises DDGRateLimited so callers fail fast instead
-    of firing retry storms that extend the block.
+
+def _ddg_mark_blocked(reason: str = "") -> None:
+    """Record that DuckDuckGo challenged us and start a cool-down window."""
+    global _ddg_blocked_until
+    _ddg_blocked_until = time.time() + _DDG_BLOCK_SECONDS
+    logger.warning(
+        f"[DUCKDUCKGO] Challenge detected ({reason or 'unknown'}); "
+        f"cooling down for {_DDG_BLOCK_SECONDS // 60} min"
+    )
+
+
+def _ddg_throttle() -> None:
+    """Enforce the inter-request gap and abort during a cool-down window."""
+    global _ddg_last_call
+    now = time.time()
+    if now < _ddg_blocked_until:
+        raise DDGRateLimited(
+            f"DuckDuckGo cooling down ({int(_ddg_blocked_until - now)}s left)")
+    elapsed = now - _ddg_last_call
+    if elapsed < _DDG_MIN_INTERVAL:
+        time.sleep(_DDG_MIN_INTERVAL - elapsed)
+    _ddg_last_call = time.time()
+
+
+def _ddg_looks_challenged(resp) -> bool:
+    """True when a DDG response is a bot/anomaly challenge, not real results."""
+    if resp.status_code in (202, 403, 429):
+        return True
+    body = resp.text[:2000].lower()
+    return ("botnet_challenge" in body or "anomaly.js" in body
+            or '"challenge"' in body or "captcha" in body)
+
+
+def _ddg_extract_vqd(html_bytes: bytes) -> str:
+    """Pull the vqd token out of a DuckDuckGo landing page."""
+    for c1, c1_len, c2 in ((b'vqd="', 5, b'"'), (b"vqd=", 4, b"&"), (b"vqd='", 5, b"'")):
+        try:
+            start = html_bytes.index(c1) + c1_len
+            end = html_bytes.index(c2, start)
+            return html_bytes[start:end].decode()
+        except ValueError:
+            continue
+    return ""
+
+
+def _ddgs_images(query: str, layout: Optional[str] = None, max_results: int = 10) -> list:
+    """Search DuckDuckGo images with a thin HTTP client.
+
+    Mirrors the ddgs 'duckduckgo' image backend (landing page -> vqd -> i.js)
+    but exposes the HTTP status so a 202/403 bot-challenge is detected
+    precisely and surfaced as DDGRateLimited instead of being mistaken for
+    'no results' (which previously let bulk runs keep hammering DDG).
     """
-    from ddgs import DDGS
-    from ddgs.exceptions import RatelimitException
+    _ddg_throttle()
+
+    headers = {
+        "User-Agent": _BROWSER_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    landing = requests.get("https://duckduckgo.com", params={"q": query},
+                           headers=headers, timeout=15)
+    if _ddg_looks_challenged(landing):
+        _ddg_mark_blocked(f"landing HTTP {landing.status_code}")
+        raise DDGRateLimited("DuckDuckGo challenged the landing request")
+
+    vqd = _ddg_extract_vqd(landing.content)
+    if not vqd:
+        logger.warning("[DUCKDUCKGO] Could not extract vqd token")
+        return []
+
+    params = {"o": "json", "q": query, "l": "wt-wt", "vqd": vqd, "p": "1"}
+    if layout:
+        params["f"] = f",,,layout:{layout},"
+
+    ij_headers = dict(headers)
+    ij_headers.update({
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Referer": "https://duckduckgo.com/",
+        "Sec-Fetch-Mode": "cors",
+        "X-Requested-With": "XMLHttpRequest",
+    })
+    icon = requests.get("https://duckduckgo.com/i.js", params=params,
+                        headers=ij_headers, timeout=15)
+    if _ddg_looks_challenged(icon):
+        _ddg_mark_blocked(f"i.js HTTP {icon.status_code}")
+        raise DDGRateLimited("DuckDuckGo challenged the image request")
+
     try:
-        return list(DDGS().images(query, backend="duckduckgo", **kwargs))
-    except RatelimitException as e:
-        logger.warning(f"[DUCKDUCKGO] Rate limited by DuckDuckGo: {e}")
-        raise DDGRateLimited(str(e)) from e
+        data = icon.json()
+    except Exception as e:
+        logger.warning(f"[DUCKDUCKGO] Invalid JSON from i.js: {e}")
+        return []
+
+    results = data.get("results") or []
+    return results[:max_results]
+
+
+# -------------------------------------------------------------------
+# Bing Image Search helpers
+# -------------------------------------------------------------------
+
+class BingRateLimited(Exception):
+    """Raised when Bing throttles/blocks the image search."""
+    pass
+
+
+_BING_MIN_INTERVAL = 2.0     # seconds between Bing searches
+_BING_BLOCK_SECONDS = 900    # base cool-down after a detected block
+_bing_last_call = 0.0
+_bing_blocked_until = 0.0
+
+_BING_RESULT_RE = re.compile(r'class="iusc"[^>]*?\sm="([^"]+)"')
+
+
+def _bing_mark_blocked(reason: str = "") -> None:
+    global _bing_blocked_until
+    _bing_blocked_until = time.time() + _BING_BLOCK_SECONDS
+    logger.warning(
+        f"[BING] Blocked ({reason or 'unknown'}); cooling down for "
+        f"{_BING_BLOCK_SECONDS // 60} min"
+    )
+
+
+def _bing_throttle() -> None:
+    global _bing_last_call
+    now = time.time()
+    if now < _bing_blocked_until:
+        raise BingRateLimited(
+            f"Bing cooling down ({int(_bing_blocked_until - now)}s left)")
+    elapsed = now - _bing_last_call
+    if elapsed < _BING_MIN_INTERVAL:
+        time.sleep(_BING_MIN_INTERVAL - elapsed)
+    _bing_last_call = time.time()
+
+
+def _bing_images(query: str, count: int = 35) -> list:
+    """Search Bing images via the async endpoint.
+
+    Returns a list of {'image', 'thumbnail', 'title'} dicts. Each result is an
+    <a class="iusc" ... m="{...escaped json...}"> whose `m` attribute holds the
+    original (murl) and thumbnail (turl) image URLs.
+    """
+    from html import unescape as _unescape
+
+    _bing_throttle()
+    headers = {
+        "User-Agent": _BROWSER_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    params = {"q": query, "first": 0, "count": count,
+              "layout": "RowBased", "mmasync": 1}
+
+    resp = requests.get("https://www.bing.com/images/async", params=params,
+                        headers=headers, timeout=15)
+    if resp.status_code in (403, 429):
+        _bing_mark_blocked(f"HTTP {resp.status_code}")
+        raise BingRateLimited(f"Bing image search blocked (HTTP {resp.status_code})")
+    if resp.status_code != 200:
+        logger.warning(f"[BING] Unexpected HTTP {resp.status_code} for '{query}'")
+        return []
+
+    results = []
+    for raw in _BING_RESULT_RE.findall(resp.text):
+        try:
+            meta = json.loads(_unescape(raw))
+        except Exception:
+            continue
+        image = meta.get("murl")
+        if not image:
+            continue
+        results.append({
+            "image": image,
+            "thumbnail": meta.get("turl") or image,
+            "title": meta.get("t") or "",
+        })
+        if len(results) >= count:
+            break
+    return results
 
 
 def fetch_duckduckgo_screenshots(title: str, console_name: str, limit: int = 5) -> List[str]:
@@ -1072,15 +1266,7 @@ def fetch_duckduckgo_screenshots(title: str, console_name: str, limit: int = 5) 
         raise
     except Exception as e:
         logger.warning(f"[DUCKDUCKGO] Search failed: {e}")
-        # Retry once without layout filter
-        try:
-            results = _ddgs_images(query, max_results=10)
-            logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
-        except DDGRateLimited:
-            raise
-        except Exception as e2:
-            logger.warning(f"[DUCKDUCKGO] Retry also failed: {e2}")
-            return []
+        return []
 
     if not results:
         logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
@@ -1158,15 +1344,7 @@ def fetch_duckduckgo_cover(title: str, console_name: str) -> Optional[str]:
         raise
     except Exception as e:
         logger.warning(f"[DUCKDUCKGO] Search failed: {e}")
-        # Retry once without layout filter
-        try:
-            results = _ddgs_images(query, max_results=10)
-            logger.info(f"[DUCKDUCKGO] Retry without layout got {len(results) if results else 0} results")
-        except DDGRateLimited:
-            raise
-        except Exception as e2:
-            logger.warning(f"[DUCKDUCKGO] Retry also failed: {e2}")
-            return None
+        return None
 
     if not results:
         logger.warning(f"[DUCKDUCKGO] No results returned for: {query}")
@@ -1200,6 +1378,136 @@ def fetch_duckduckgo_cover(title: str, console_name: str) -> Optional[str]:
             continue
 
     logger.error(f"[DUCKDUCKGO] No valid portrait cover found for '{title}'")
+    return None
+
+# -------------------------------------------------------------------
+# Bing screenshot / cover helpers
+# -------------------------------------------------------------------
+
+def fetch_bing_screenshots(title: str, console_name: str, limit: int = 5) -> List[str]:
+    """Fetch landscape screenshots from Bing Images for any console"""
+    logger.info(f"[BING] Starting screenshot search for: {title} ({console_name})")
+
+    query = f"{sanitize_query(title)} {sanitize_query(console_name)} screenshots"
+    logger.info(f"[BING] Query: {query}")
+
+    try:
+        results = _bing_images(query, count=35)
+        logger.info(f"[BING] Got {len(results) if results else 0} raw results")
+    except BingRateLimited:
+        raise
+    except Exception as e:
+        logger.warning(f"[BING] Search failed: {e}")
+        return []
+
+    if not results:
+        logger.warning(f"[BING] No results returned for: {query}")
+        return []
+
+    large_urls = []
+    small_urls = []
+
+    for i, result in enumerate(results):
+        img_url = result.get("image") or result.get("thumbnail")
+        if not img_url:
+            continue
+
+        try:
+            time.sleep(0.2)
+            response = requests.get(img_url, timeout=10, headers={
+                "User-Agent": _BROWSER_UA
+            })
+            if response.status_code != 200:
+                continue
+
+            img = Image.open(BytesIO(response.content))
+            width, height = img.size
+            logger.info(f"[BING] Result {i}: {width}x{height}")
+
+            if width <= height:
+                continue
+
+            aspect_ratio = width / height
+            if aspect_ratio < 1.3 or aspect_ratio > 2.5:
+                continue
+
+            is_large = width >= 640 and height >= 480 and width <= 1920
+            is_small = width >= 320 and height >= 240 and width <= 1920
+
+            if not is_large and not is_small:
+                continue
+
+            if is_large:
+                large_urls.append(img_url)
+            else:
+                small_urls.append(img_url)
+
+            if len(large_urls) >= limit:
+                break
+        except Exception as e:
+            logger.error(f"[BING] Failed to verify screenshot: {e}")
+            continue
+
+    valid_urls = large_urls[:limit]
+    if len(valid_urls) < limit:
+        needed = limit - len(valid_urls)
+        valid_urls.extend(small_urls[:needed])
+
+    if valid_urls:
+        logger.info(f"[BING] Returning {len(valid_urls)} valid URLs (large: {len(large_urls)}, small: {len(small_urls)})")
+        return valid_urls[:limit]
+
+    logger.error(f"[BING] No valid screenshots found for '{title}'")
+    return []
+
+
+def fetch_bing_cover(title: str, console_name: str) -> Optional[str]:
+    """Fetch portrait box cover from Bing Images"""
+    logger.info(f"[BING] Starting cover search for: {title} ({console_name})")
+
+    query = f"{sanitize_query(title)} {sanitize_query(console_name)} box cover"
+    logger.info(f"[BING] Query: {query}")
+
+    try:
+        results = _bing_images(query, count=35)
+        logger.info(f"[BING] Got {len(results) if results else 0} raw results")
+    except BingRateLimited:
+        raise
+    except Exception as e:
+        logger.warning(f"[BING] Search failed: {e}")
+        return None
+
+    if not results:
+        logger.warning(f"[BING] No results returned for: {query}")
+        return None
+
+    for i, result in enumerate(results):
+        img_url = result.get("image") or result.get("thumbnail")
+        if not img_url:
+            continue
+
+        try:
+            logger.info(f"[BING] Downloading: {img_url}")
+            time.sleep(0.2)
+            response = requests.get(img_url, timeout=10, headers={
+                "User-Agent": _BROWSER_UA
+            })
+            if response.status_code != 200:
+                logger.warning(f"[BING] HTTP {response.status_code} for {img_url}")
+                continue
+
+            img = Image.open(BytesIO(response.content))
+            width, height = img.size
+            logger.info(f"[BING] Result {i}: {width}x{height}")
+
+            if height > width:
+                logger.info(f"[BING] Valid portrait cover: {width}x{height}")
+                return img_url
+        except Exception as e:
+            logger.error(f"[BING] Failed to verify cover: {e}")
+            continue
+
+    logger.error(f"[BING] No valid portrait cover found for '{title}'")
     return None
 
 # -------------------------------------------------------------------
@@ -1747,7 +2055,7 @@ def get_consoles():
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT c.id, c.name, c.path, c.slug, COUNT(g.id) as game_count
+            SELECT c.id, c.name, c.path, c.slug, c.thumbnail_aspect, COUNT(g.id) as game_count
             FROM consoles c
             LEFT JOIN games g ON c.id = g.console_id
             GROUP BY c.id
@@ -1760,6 +2068,8 @@ def get_consoles():
         for r in rows:
             item = dict(r)
             item["icon_url"] = match_console_icon(item["name"])
+            if not item.get("thumbnail_aspect"):
+                item["thumbnail_aspect"] = "portrait"
             result.append(item)
         return result
     except Exception as e:
@@ -1791,6 +2101,10 @@ def add_console(console: ConsoleBase):
         cur = conn.cursor()
         now = datetime.utcnow().isoformat()
 
+        aspect = (console.thumbnail_aspect or "portrait").strip().lower()
+        if aspect not in VALID_THUMBNAIL_ASPECTS:
+            aspect = "portrait"
+
         # Resolve canonical slug: explicit slug wins, else auto-pair by name
         import console_catalog as _cc
         slug = None
@@ -1806,8 +2120,8 @@ def add_console(console: ConsoleBase):
 
         try:
             cur.execute(
-                "INSERT INTO consoles (name, path, created_at, slug) VALUES (?, ?, ?, ?);",
-                (console.name.strip(), path, now, slug),
+                "INSERT INTO consoles (name, path, created_at, slug, thumbnail_aspect) VALUES (?, ?, ?, ?, ?);",
+                (console.name.strip(), path, now, slug, aspect),
             )
             cid = cur.lastrowid
             conn.commit()
@@ -1819,7 +2133,8 @@ def add_console(console: ConsoleBase):
             conn.close()
         
         icon_url = match_console_icon(console.name)
-        return ConsoleResponse(id=cid, name=console.name, path=path, slug=slug, game_count=0, icon_url=icon_url)
+        return ConsoleResponse(id=cid, name=console.name, path=path, slug=slug,
+                               thumbnail_aspect=aspect, game_count=0, icon_url=icon_url)
     except HTTPException:
         raise
     except Exception as e:
@@ -1840,30 +2155,43 @@ def update_console(console_id: int, console: ConsoleBase):
         conn = get_conn()
         cur = conn.cursor()
 
-        cur.execute("SELECT id, path, slug FROM consoles WHERE id = ?;", (console_id,))
+        cur.execute("SELECT id, path, slug, thumbnail_aspect FROM consoles WHERE id = ?;", (console_id,))
         existing = cur.fetchone()
 
         if not existing:
             conn.close()
             raise HTTPException(status_code=404, detail="Console not found")
 
-        _, path, current_slug = existing
-        
+        _, path, current_slug, current_aspect = existing
+
+        updates = ["name = ?"]
+        params = [console.name.strip()]
+        if console.thumbnail_aspect is not None:
+            aspect = console.thumbnail_aspect.strip().lower()
+            if aspect not in VALID_THUMBNAIL_ASPECTS:
+                aspect = "portrait"
+            updates.append("thumbnail_aspect = ?")
+            params.append(aspect)
+        else:
+            aspect = current_aspect or "portrait"
+
+        params.append(console_id)
         cur.execute(
-            "UPDATE consoles SET name = ? WHERE id = ?;",
-            (console.name.strip(), console_id),
+            f"UPDATE consoles SET {', '.join(updates)} WHERE id = ?;",
+            params,
         )
         conn.commit()
-        
+
         cur.execute("SELECT COUNT(*) FROM games WHERE console_id = ?;", (console_id,))
         game_count = cur.fetchone()[0]
-        
+
         conn.close()
         logger.info(f"Console updated: ID {console_id} -> {console.name}")
-        
+
         icon_url = match_console_icon(console.name)
         return ConsoleResponse(id=console_id, name=console.name, path=path,
-                               slug=current_slug, game_count=game_count, icon_url=icon_url)
+                               slug=current_slug, thumbnail_aspect=aspect,
+                               game_count=game_count, icon_url=icon_url)
     except HTTPException:
         raise
     except Exception as e:
@@ -1895,13 +2223,41 @@ def pair_console(console_id: int, body: ConsolePairRequest):
         conn.close()
         logger.info(f"Console {console_id} paired with catalog entry '{entry.slug}'")
         icon_url = match_console_icon(row["name"])
+        cur.execute("SELECT thumbnail_aspect FROM consoles WHERE id = ?;", (console_id,))
+        ta = cur.fetchone()
+        aspect = ta[0] if ta and ta[0] else "portrait"
         return ConsoleResponse(id=console_id, name=row["name"], path=row["path"],
-                               slug=entry.slug, game_count=game_count, icon_url=icon_url)
+                               slug=entry.slug, thumbnail_aspect=aspect,
+                               game_count=game_count, icon_url=icon_url)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to pair console: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to pair console: {str(e)}")
+
+@app.put("/api/consoles/{console_id}/thumbnail-aspect")
+def set_console_thumbnail_aspect(console_id: int, body: ThumbnailAspectRequest):
+    """Set the thumbnail aspect ratio for a console"""
+    aspect = body.aspect.strip().lower()
+    if aspect not in VALID_THUMBNAIL_ASPECTS:
+        raise HTTPException(status_code=400, detail=f"Invalid aspect. Must be one of: {', '.join(VALID_THUMBNAIL_ASPECTS)}")
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM consoles WHERE id = ?;", (console_id,))
+        if not cur.fetchone():
+            conn.close()
+            raise HTTPException(status_code=404, detail="Console not found")
+        cur.execute("UPDATE consoles SET thumbnail_aspect = ? WHERE id = ?;", (aspect, console_id))
+        conn.commit()
+        conn.close()
+        logger.info(f"Console {console_id} thumbnail aspect set to {aspect}")
+        return {"status": "ok", "aspect": aspect}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set thumbnail aspect: {e}")
+        raise HTTPException(status_code=500, detail="Failed to set thumbnail aspect")
 
 # -------------------------------------------------------------------
 # API: Scan console folder
@@ -2236,7 +2592,7 @@ def search_games(q: str = Query(..., description="Search query")):
         # Word-boundary matching: title starts with query,
         # OR any word (after space or hyphen) starts with query
         cur.execute("""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name, g.console_id,
                    g.release_year, g.publisher, g.developer
             FROM games g
             JOIN consoles c ON g.console_id = c.id
@@ -2254,6 +2610,7 @@ def search_games(q: str = Query(..., description="Search query")):
             genre=r["genre"],
             cover_url=r["cover_url"],
             console_name=r["console_name"],
+            console_id=r["console_id"],
             release_year=r["release_year"],
             publisher=r["publisher"],
             developer=r["developer"],
@@ -2607,10 +2964,77 @@ def fetch_metadata_for_single_game(game_id: int):
         logger.error(f"Failed to fetch metadata for game {game_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch metadata")
 
+# -------------------------------------------------------------------
+# Provider chain helpers (power the 'auto' source and per-provider fetchers)
+# -------------------------------------------------------------------
+_AUTO_ORDER = ("bing", "duckduckgo", "rawg", "tgdb")
+
+
+def _cover_provider_plan(source: str) -> List[str]:
+    if source == "auto":
+        return list(_AUTO_ORDER)
+    return [source]
+
+
+def _screenshot_provider_plan(source: str) -> List[str]:
+    if source == "auto":
+        return list(_AUTO_ORDER)
+    if source == "duckduckgo":
+        # Preserve the historic DuckDuckGo -> TheGamesDB -> RAWG fallback
+        return ["duckduckgo", "tgdb", "rawg"]
+    return [source]
+
+
+def _cover_from_provider(provider: str, title: str, console_id: int,
+                         console_name: str) -> Optional[str]:
+    """Return a cover URL from a single provider, or None.
+
+    May raise DDGRateLimited / BingRateLimited so callers can back off."""
+    if provider == "bing":
+        return fetch_bing_cover(title, console_name)
+    if provider == "duckduckgo":
+        return fetch_duckduckgo_cover(title, console_name)
+    if provider == "tgdb":
+        if not is_tgdb_configured():
+            return None
+        return fetch_tgdb_cover(title, console_id, console_name)
+    if provider == "rawg":
+        if not is_rawg_configured():
+            return None
+        game = fetch_rawg_game(title, console_id)
+        if game and game.get("background_image"):
+            return game["background_image"]
+    return None
+
+
+def _screenshots_from_provider(provider: str, title: str, console_id: int,
+                               console_name: str, limit: int = 5) -> List[str]:
+    """Return raw screenshot URLs from a single provider.
+
+    May raise DDGRateLimited / BingRateLimited so callers can back off."""
+    if provider == "bing":
+        return fetch_bing_screenshots(title, console_name, limit=limit)
+    if provider == "duckduckgo":
+        return fetch_duckduckgo_screenshots(title, console_name, limit=limit)
+    if provider == "tgdb":
+        if not is_tgdb_configured():
+            return []
+        return list(fetch_tgdb_screenshots(title, console_id, console_name, limit=limit))
+    if provider == "rawg":
+        if not is_rawg_configured():
+            return []
+        game = fetch_rawg_game(title, console_id)
+        if not game or not game.get("id"):
+            return []
+        return [s.get("image") for s in fetch_rawg_screenshots(game["id"], limit=limit)
+                if s.get("image")]
+    return []
+
+
 @app.post("/api/games/{game_id}/fetch-screenshots")
 def fetch_screenshots_for_game(game_id: int, source: str = Query("duckduckgo")):
     """Fetch and save screenshots for a single game, overwriting existing ones.
-    source can be 'duckduckgo', 'rawg' or 'tgdb'.
+    source can be 'auto', 'bing', 'duckduckgo', 'rawg' or 'tgdb'.
     The DB connection is NOT held during network work to avoid lock contention."""
     # 0) Read game info + clear old rows, then release the connection
     conn = get_conn()
@@ -2647,70 +3071,38 @@ def fetch_screenshots_for_game(game_id: int, source: str = Query("duckduckgo")):
     screenshots_urls = []
     ddg_rate_limited = False
 
-    # 1) Try DuckDuckGo first (unless TGDB or RAWG explicitly selected)
-    if source not in ("tgdb", "rawg"):
+    for provider in _screenshot_provider_plan(source):
+        if screenshots_urls:
+            break
         try:
-            raw_screens = fetch_duckduckgo_screenshots(title, console_name, limit=5)
-            if raw_screens:
-                index = 1
-                for s_url in raw_screens:
-                    img = download_image(s_url)
-                    if not img:
-                        continue
-                    local_s = save_screenshot(img, gid, index)
-                    if local_s:
-                        screenshots_urls.append(local_s)
-                        index += 1
+            raw_screens = _screenshots_from_provider(
+                provider, title, console_id, console_name, limit=5)
         except DDGRateLimited:
             ddg_rate_limited = True
             logger.warning(f"DuckDuckGo rate limited during screenshot search for {title}")
+            continue
+        except BingRateLimited:
+            logger.warning(f"Bing rate limited during screenshot search for {title}")
+            continue
         except Exception as e:
-            logger.warning(f"DuckDuckGo failed for {title}: {e}")
+            logger.warning(f"{provider} screenshots failed for {title}: {e}")
+            continue
 
-    # 2) TheGamesDB (explicit selection or fallback from DuckDuckGo)
-    if not screenshots_urls and source in ("duckduckgo", "tgdb") and is_tgdb_configured():
-        try:
-            tgdb_urls = fetch_tgdb_screenshots(title, console_id, console_name, limit=5)
-            if tgdb_urls:
-                screenshot_dir.mkdir(parents=True, exist_ok=True)
-                index = 1
-                for s_url in tgdb_urls:
-                    img = download_image(s_url)
-                    if not img:
-                        continue
-                    local_s = save_screenshot(img, gid, index)
-                    if local_s:
-                        screenshots_urls.append(local_s)
-                        index += 1
-        except Exception as e:
-            logger.warning(f"TheGamesDB failed for {title}: {e}")
+        if not raw_screens:
+            continue
 
-    # 3) Fall back to RAWG
-    if not screenshots_urls and source in ("duckduckgo", "rawg") and is_rawg_configured():
-        try:
-            rawg_game = fetch_rawg_game(title, console_id)
-            if rawg_game:
-                rawg_id = rawg_game.get("id")
-                if rawg_id:
-                    raw_screens = fetch_rawg_screenshots(rawg_id, limit=5)
-                    if raw_screens:
-                        screenshot_dir.mkdir(parents=True, exist_ok=True)
-                        index = 1
-                        for s in raw_screens:
-                            s_url = s.get("image")
-                            if not s_url:
-                                continue
-                            img = download_image(s_url)
-                            if not img:
-                                continue
-                            local_s = save_screenshot(img, gid, index)
-                            if local_s:
-                                screenshots_urls.append(local_s)
-                                index += 1
-        except Exception as e:
-            logger.warning(f"RAWG failed for {title}: {e}")
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        index = 1
+        for s_url in raw_screens:
+            img = download_image(s_url)
+            if not img:
+                continue
+            local_s = save_screenshot(img, gid, index)
+            if local_s:
+                screenshots_urls.append(local_s)
+                index += 1
 
-    # 4) Error if all sources failed
+    # Error if all sources failed
     if not screenshots_urls:
         if ddg_rate_limited:
             raise HTTPException(
@@ -3205,6 +3597,7 @@ def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: s
         skipped = 0
         processed = 0
         cancelled = False
+        aborted_by_rate_limit = False
         
         logger.info(f"Streaming covers for {total} games in console {cid}")
         start = time.time()
@@ -3239,32 +3632,47 @@ def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: s
             cover_url = None
             used_source = None
             rate_limited_hit = False
-            try:
-                if source == "duckduckgo":
-                    try:
+            rate_limit_abort = False
+
+            if source == "auto":
+                providers = _AUTO_ORDER
+            elif source == "duckduckgo":
+                providers = ("duckduckgo", "tgdb")
+            else:
+                providers = (source,)
+
+            for provider in providers:
+                try:
+                    if provider == "bing":
+                        cover_url = fetch_bing_cover(title, console_name)
+                    elif provider == "duckduckgo":
                         cover_url = fetch_duckduckgo_cover(title, console_name)
-                        if cover_url:
-                            used_source = "duckduckgo"
-                    except DDGRateLimited:
-                        rate_limited_hit = True
-                    if not cover_url and is_tgdb_configured():
-                        cover_url = fetch_tgdb_cover(title, cid, console_name)
-                        if cover_url:
-                            used_source = "tgdb"
-                elif source == "tgdb":
-                    cover_url = fetch_tgdb_cover(title, cid, console_name)
-                    if cover_url:
-                        used_source = "tgdb"
-                else:
-                    rawg_game = fetch_rawg_game(title, console_id=cid, strict_platform=True)
-                    if rawg_game and rawg_game.get("background_image"):
-                        cover_url = rawg_game["background_image"]
-                        used_source = "rawg"
-            except Exception as e:
-                logger.warning(f"Cover search failed for {title}: {e}")
+                    elif provider == "tgdb":
+                        cover_url = fetch_tgdb_cover(title, cid, console_name) if is_tgdb_configured() else None
+                    else:  # rawg
+                        rg = fetch_rawg_game(title, console_id=cid, strict_platform=True)
+                        cover_url = rg["background_image"] if rg and rg.get("background_image") else None
+                except DDGRateLimited:
+                    # A DuckDuckGo challenge aborts the entire bulk run.
+                    rate_limited_hit = True
+                    rate_limit_abort = True
+                    break
+                except BingRateLimited:
+                    logger.warning(f"Bing rate limited during cover search for {title}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"{provider} cover search failed for {title}: {e}")
+                    continue
+                if cover_url:
+                    used_source = provider
+                    break
 
             if rate_limited_hit:
                 yield f"data: {json.dumps({'status': 'rate_limited', 'provider': 'duckduckgo', 'current': title})}\n\n"
+
+            if rate_limit_abort:
+                aborted_by_rate_limit = True
+                break
 
             if cover_url:
                 try:
@@ -3308,7 +3716,7 @@ def generate_cover_progress_stream(cid: int, force: bool, source: str, letter: s
         end = time.time()
         progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
         
-        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'elapsed': round(end - start, 2)})}\n\n"
+        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'aborted_by_rate_limit': aborted_by_rate_limit, 'elapsed': round(end - start, 2)})}\n\n"
 
     except Exception as e:
         logger.error(f"Stream error: {e}")
@@ -3597,6 +4005,7 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
         skipped = 0
         processed = 0
         cancelled = False
+        aborted_by_rate_limit = False
 
         logger.info(f"Streaming screenshots for {total} games in console {cid}")
         start = time.time()
@@ -3617,59 +4026,56 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
 
             screenshots_urls = []
             rate_limited_hit = False
+            rate_limit_abort = False
 
-            # 1) DuckDuckGo first (unless TGDB or RAWG explicitly selected)
-            if source not in ("tgdb", "rawg"):
+            if source == "auto":
+                providers = _AUTO_ORDER
+            elif source == "duckduckgo":
+                providers = ("duckduckgo", "tgdb", "rawg")
+            else:
+                providers = (source,)
+
+            for provider in providers:
+                if screenshots_urls:
+                    break
                 try:
-                    images = fetch_duckduckgo_screenshots(title, console_name, limit=5)
-                    for img_url in images[:5]:
-                        img = download_image(img_url)
-                        if img:
-                            local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
-                            if local_s:
-                                screenshots_urls.append(local_s)
+                    if provider == "rawg":
+                        if not is_rawg_configured():
+                            continue
+                        rg = fetch_rawg_game(title, cid)
+                        raw_screens = [s.get("image")
+                                       for s in (rg or {}).get("short_screenshots", [])
+                                       if s.get("image")]
+                    else:
+                        raw_screens = _screenshots_from_provider(
+                            provider, title, cid, console_name, limit=5)
                 except DDGRateLimited:
+                    # A DuckDuckGo challenge aborts the entire bulk run.
                     rate_limited_hit = True
-                    logger.warning(f"DuckDuckGo rate limited during screenshots for {title}")
+                    rate_limit_abort = True
+                    break
+                except BingRateLimited:
+                    logger.warning(f"Bing rate limited during screenshots for {title}")
+                    continue
                 except Exception as e:
-                    logger.warning(f"DuckDuckGo failed for {title}: {e}")
+                    logger.warning(f"{provider} screenshots failed for {title}: {e}")
+                    continue
 
-            # 2) TheGamesDB (explicit selection or fallback from DuckDuckGo)
-            if not screenshots_urls and source in ("duckduckgo", "tgdb") and is_tgdb_configured():
-                try:
-                    tgdb_urls = fetch_tgdb_screenshots(title, cid, console_name, limit=5)
-                    for img_url in tgdb_urls[:5]:
-                        img = download_image(img_url)
-                        if img:
-                            local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
-                            if local_s:
-                                screenshots_urls.append(local_s)
-                except Exception as e:
-                    logger.warning(f"TheGamesDB failed for {title}: {e}")
+                if not raw_screens:
+                    continue
+                for img_url in raw_screens[:5]:
+                    img = download_image(img_url)
+                    if img:
+                        local_s = save_screenshot(img, gid, len(screenshots_urls) + 1)
+                        if local_s:
+                            screenshots_urls.append(local_s)
 
             if rate_limited_hit:
                 yield f"data: {json.dumps({'status': 'rate_limited', 'provider': 'duckduckgo', 'current': title})}\n\n"
 
-            # 3) Fall back to RAWG
-            if not screenshots_urls and is_rawg_configured():
-                try:
-                    rawg_game = fetch_rawg_game(title, cid)
-                    if rawg_game and rawg_game.get("short_screenshots"):
-                        raw_screens = rawg_game["short_screenshots"]
-                        index = 1
-                        for s in raw_screens:
-                            s_url = s.get("image")
-                            if not s_url:
-                                continue
-                            img = download_image(s_url)
-                            if not img:
-                                continue
-                            local_s = save_screenshot(img, gid, index)
-                            if local_s:
-                                screenshots_urls.append(local_s)
-                                index += 1
-                except Exception as e:
-                    logger.warning(f"RAWG failed for {title}: {e}")
+            if rate_limit_abort:
+                aborted_by_rate_limit = True
+                break
 
             if screenshots_urls:
                 for url in screenshots_urls:
@@ -3699,7 +4105,7 @@ def generate_screenshot_progress_stream(cid: int, force: bool, source: str, lett
         end = time.time()
         progress_pct = round((processed / total) * 100, 2) if total > 0 else 0
 
-        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'elapsed': round(end - start, 2)})}\n\n"
+        yield f"data: {json.dumps({'status': 'complete', 'processed': processed, 'total': total, 'progress_pct': progress_pct, 'updated': updated, 'skipped': skipped, 'cancelled': cancelled, 'aborted_by_rate_limit': aborted_by_rate_limit, 'elapsed': round(end - start, 2)})}\n\n"
 
     except Exception as e:
         logger.error(f"Stream error: {e}")
@@ -3844,7 +4250,8 @@ def cover_from_url(game_id: int, data: CoverFromUrlRequest):
 
 @app.post("/api/games/{game_id}/fetch-cover")
 def fetch_cover_for_game(game_id: int, source: str = Query("auto")):
-    """Fetch a cover for a single game. source can be 'auto' (DDG→TGDB chain), 'duckduckgo', 'tgdb', or 'rawg'.
+    """Fetch a cover for a single game. source can be 'auto' (Bing->DDG->RAWG->TGDB chain),
+    'bing', 'duckduckgo', 'tgdb', or 'rawg'.
     The DB connection is NOT held during network work to avoid lock contention."""
     # 0) Read game info, then release the connection immediately
     conn = get_conn()
@@ -3875,38 +4282,40 @@ def fetch_cover_for_game(game_id: int, source: str = Query("auto")):
     ddg_rate_limited = False
 
     if source == "auto":
-        # 1) DuckDuckGo
-        try:
-            cover_url = fetch_duckduckgo_cover(title, console_name)
+        for provider in _cover_provider_plan(source):
+            try:
+                cover_url = _cover_from_provider(provider, title, console_id, console_name)
+            except DDGRateLimited:
+                ddg_rate_limited = True
+                logger.warning(f"[COVER] DuckDuckGo rate limited during search for '{title}'")
+                continue
+            except BingRateLimited:
+                logger.warning(f"[COVER] Bing rate limited during search for '{title}'")
+                continue
+            except Exception as e:
+                logger.warning(f"[COVER] {provider} failed for '{title}': {e}")
+                continue
             if cover_url:
-                used_source = "duckduckgo"
-        except DDGRateLimited:
-            ddg_rate_limited = True
-            logger.warning(f"[COVER] DuckDuckGo rate limited during search for '{title}'")
-
-        # 2) TheGamesDB fallback
-        if not cover_url:
-            if is_tgdb_configured():
-                cover_url = fetch_tgdb_cover(title, console_id, console_name)
-                if cover_url:
-                    used_source = "tgdb"
-            elif ddg_rate_limited:
-                raise HTTPException(
-                    status_code=429,
-                    detail="DuckDuckGo is rate-limiting this IP and no TheGamesDB API key is configured. "
-                           "Add one under Options -> API Keys to enable automatic fallback.",
-                )
+                used_source = provider
+                break
 
         if not cover_url:
             if ddg_rate_limited:
                 raise HTTPException(
                     status_code=429,
-                    detail="DuckDuckGo is rate-limiting this IP and TheGamesDB had no cover for this game. Try again later.",
+                    detail="DuckDuckGo is rate-limiting this IP and no other provider had a cover. Try again later.",
                 )
             raise HTTPException(status_code=404, detail="No cover found for this game")
     else:
-        # Specific source requested
-        if source == "duckduckgo":
+        # Specific source requested (single provider)
+        if source == "bing":
+            try:
+                cover_url = fetch_bing_cover(title, console_name)
+                if cover_url:
+                    used_source = "bing"
+            except BingRateLimited:
+                raise HTTPException(status_code=429, detail="Bing is rate-limiting this IP. Try again later.")
+        elif source == "duckduckgo":
             try:
                 cover_url = fetch_duckduckgo_cover(title, console_name)
                 if cover_url:
@@ -4399,6 +4808,7 @@ class CollectionGameResponse(BaseModel):
     genre: Optional[str] = None
     cover_url: Optional[str] = None
     console_name: str
+    console_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -4445,6 +4855,7 @@ class SeriesGameEntry(BaseModel):
     rawg_id: Optional[int] = None
     is_missing: bool = False
     console_name: Optional[str] = None
+    console_id: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -4596,7 +5007,7 @@ def get_collection_games(collection_id: int):
             raise HTTPException(status_code=404, detail="Collection not found")
 
         cur.execute("""
-            SELECT cg.id, cg.game_id, g.title, g.genre, g.cover_url, co.name as console_name
+            SELECT cg.id, cg.game_id, g.title, g.genre, g.cover_url, co.name as console_name, g.console_id
             FROM collection_games cg
             JOIN games g ON cg.game_id = g.id
             JOIN consoles co ON g.console_id = co.id
@@ -4851,7 +5262,7 @@ def get_series_games(series_id: int):
         cur.execute("""
             SELECT sg.id, sg.series_id, sg.game_id, sg.position, sg.title,
                    sg.cover_url, sg.platform, sg.release_year, sg.rawg_id, sg.is_missing,
-                   c.name as console_name
+                   c.name as console_name, g.console_id
             FROM series_games sg
             LEFT JOIN games g ON sg.game_id = g.id
             LEFT JOIN consoles c ON g.console_id = c.id

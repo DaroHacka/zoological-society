@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=46" />
+  <link rel="stylesheet" href="style.css?v=47" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -236,10 +236,18 @@
           </div>
         </section>
 
-        <!-- Alphabetical index -->
-        <section class="alpha-index" id="alpha-index">
-          <!-- Filled by JS -->
-        </section>
+        <!-- Alphabetical index + thumbnail format control -->
+        <div class="console-toolbar" id="console-toolbar">
+          <section class="alpha-index" id="alpha-index">
+            <!-- Filled by JS -->
+          </section>
+          <div class="thumb-format" id="thumb-format">
+            <button class="thumb-format-btn" id="thumb-format-btn" title="Thumbnail format" onclick="toggleThumbFormatMenu(event)">
+              <span class="mask-icon icon-img-sm" id="thumb-format-icon"></span>
+            </button>
+            <div class="thumb-format-menu hidden" id="thumb-format-menu"></div>
+          </div>
+        </div>
 
         <!-- Metadata buttons -->
         <section class="metadata-actions" id="metadata-actions">
@@ -512,7 +520,8 @@
       <label>
         Cover source
         <select id="default-cover-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
-          <option value="auto">Auto (DuckDuckGo → TheGamesDB)</option>
+          <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
+          <option value="bing">Bing</option>
           <option value="duckduckgo">DuckDuckGo</option>
           <option value="tgdb">TheGamesDB</option>
           <option value="rawg">RAWG</option>
@@ -521,7 +530,8 @@
       <label>
         Screenshot source
         <select id="default-screenshot-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
-          <option value="auto">Auto (DuckDuckGo → TheGamesDB → RAWG)</option>
+          <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
+          <option value="bing">Bing</option>
           <option value="duckduckgo">DuckDuckGo</option>
           <option value="tgdb">TheGamesDB</option>
           <option value="rawg">RAWG</option>
@@ -868,6 +878,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=43"></script>
+  <script src="app.v2.js?v=45"></script>
 </body>
 </html>
