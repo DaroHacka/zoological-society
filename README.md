@@ -71,7 +71,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 133639.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-10-14 232036.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ---
@@ -87,7 +87,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 144240.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-10-14 232147.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ### 🎨 Graphic Customization
@@ -110,7 +110,7 @@ This project is built for people who want a personal archive that feels **beauti
 ---
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 140149.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-10-14 232553.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ### 📊 Status Filters & Stats
@@ -158,15 +158,20 @@ This project is built for people who want a personal archive that feels **beauti
 - Alphabetical index navigation  
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 140332.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-10-14 233331.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 141132.png" width="1080" alt="Zoological Society Logo">
+  <img src="/img-content/Screenshot 2026-10-14 233758.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 <p align="center">
-  <img src="/img-content/Screenshot 2026-02-17 141148.png" width="1080" alt="Zoological Society Logo">
+<p align="center">
+  <img src="/img-content/Screenshot 2026-10-14 233845.png" width="1080" alt="Zoological Society Logo">
+</p>
+
+<p align="center">
+  <img src="/img-content/Screenshot 2026-10-14 233906.png" width="1080" alt="Zoological Society Logo">
 </p>
 
 ---
