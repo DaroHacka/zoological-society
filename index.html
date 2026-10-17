@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=47" />
+  <link rel="stylesheet" href="style.css?v=48" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -119,6 +119,14 @@
             <span class="section-btn-label">Series</span>
           </button>
         </div>
+
+        <!-- Music -->
+        <div id="music-section" style="margin-top: 24px; padding-top: 16px;">
+          <button class="sidebar-section-btn secondary" id="music-section-btn" onclick="showMusicListView()">
+            <span class="sidebar-section-icon" id="music-section-icon"></span>
+            <span class="section-btn-label">Music</span>
+          </button>
+        </div>
       </aside>
 
       <!-- MAIN CONTENT -->
@@ -155,6 +163,12 @@
               <span class="stat-number">0</span>
               <span class="stat-label">Favorites</span>
             </div>
+          </div>
+
+          <!-- Completion Timeline Chart -->
+          <div class="homepage-chart" id="completion-chart-wrap">
+            <h3>Games Completed Over Time</h3>
+            <div id="completion-chart"></div>
           </div>
           
           <!-- Recently Viewed -->
@@ -269,6 +283,7 @@
               <button class="secondary" onclick="showCollectionsCreateView()">+ New Collection</button>
             </div>
           </div>
+          <div id="collections-alpha-index" class="alpha-index"></div>
           <div id="collections-grid" class="game-list">
             <!-- Collection cards appear here -->
           </div>
@@ -307,6 +322,7 @@
               <button class="secondary" onclick="openSeriesCreateView()">+ New Series</button>
             </div>
           </div>
+          <div id="series-alpha-index" class="alpha-index"></div>
           <div id="series-grid" class="game-list">
             <!-- Series cards appear here -->
           </div>
@@ -385,8 +401,63 @@
           </div>
         </section>
 
+        <!-- MUSIC LIST VIEW (hidden by default) -->
+        <section id="music-list-view" class="hidden">
+          <div class="series-list-header">
+            <h2><img src="ico/series.svg" class="icon-img-sm" alt="Music"/> Music</h2>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span id="music-library-count" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+            </div>
+          </div>
+          <div id="music-favorites-section" class="music-fav-section">
+            <h3>⭐ Favourite Tracks</h3>
+            <div id="music-favorites" class="music-fav-list"></div>
+          </div>
+          <div id="music-super-favorites-section" class="music-fav-section">
+            <h3>🌟 Super Favourite Tracks</h3>
+            <div id="music-super-favorites" class="music-fav-list"></div>
+          </div>
+          <div id="music-alpha-index" class="alpha-index"></div>
+          <div id="music-library-grid" class="game-list">
+            <!-- Games with linked soundtracks -->
+          </div>
+        </section>
+
       </main>
     </div>
+  </div>
+
+  <!-- Floating Music Player -->
+  <div id="music-panel" class="music-panel hidden">
+    <div class="music-panel-top">
+      <div class="music-marquee"><span class="music-marquee-inner" id="music-marquee-text"></span></div>
+      <button class="music-x" onclick="closeMusic()" title="Close player">✕</button>
+    </div>
+    <div class="music-body">
+      <div class="music-cover-box" id="music-cover-box"><img id="music-cover" alt="" /></div>
+      <div class="music-main">
+        <div class="music-album-row">
+          <label class="music-label" for="music-album">ALBUM</label>
+          <select id="music-album" onchange="musicSwitchAlbum()"></select>
+          <button class="music-icon-btn" id="music-info-btn" title="Show source folder" onclick="toggleMusicInfo()">i</button>
+        </div>
+        <div id="music-tracklist" class="music-tracklist"></div>
+        <div class="music-transport">
+          <button class="music-tbtn" onclick="musicStep(-1)" title="Previous">◀◀</button>
+          <button class="music-tbtn music-play" id="music-play" onclick="toggleMusicPlay()" title="Play / Pause">▶</button>
+          <button class="music-tbtn" onclick="musicStep(1)" title="Next">▶▶</button>
+          <div class="music-progress">
+            <input type="range" id="music-seek" min="0" max="1000" value="0" oninput="musicSeek(this.value)" />
+            <span id="music-time">0:00 / 0:00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="music-panel-foot">
+      <span class="music-vol-icon" title="Volume">♪</span>
+      <input type="range" id="music-volume" min="0" max="1" step="0.01" value="1" oninput="setMusicVolume(this.value)" title="Volume" />
+    </div>
+    <div id="music-info" class="music-info hidden"><span class="music-info-text" id="music-info-text"></span></div>
   </div>
 
   <!-- Add Console Modal -->
@@ -437,6 +508,10 @@
       <label>
         Accent color
         <input type="color" id="theme-accent-color" value="#ffb400" />
+      </label>
+      <label>
+        Platform badge text color
+        <input type="color" id="theme-console-badge-color" value="#101018" />
       </label>
 
       <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
@@ -657,7 +732,9 @@
         </div>
       </label>
       <label id="completed-date-label" class="hidden">
-        Completion Notes (date + comments)
+        Completion Date
+        <input type="date" id="edit-completed-at" />
+        Completion Notes (comments)
         <textarea id="edit-completed-date" rows="4" placeholder="e.g., Completed 02/21/2026&#10;This game was amazing!&#10;Finally finished after 50 hours..."></textarea>
       </label>
       <label>
@@ -878,6 +955,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=45"></script>
+  <script src="app.v2.js?v=46"></script>
 </body>
 </html>

@@ -292,6 +292,7 @@ class GameResponse(BaseModel):
     release_year: Optional[int] = None
     publisher: Optional[str] = None
     developer: Optional[str] = None
+    personal_score: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -334,6 +335,8 @@ class GameStatusUpdate(BaseModel):
     is_playing: Optional[bool] = None
     is_completed: Optional[bool] = None
     completed_date_note: Optional[str] = None
+    completed_at: Optional[str] = None
+    personal_score: Optional[float] = None
     is_dropped: Optional[bool] = None
     is_on_hold: Optional[bool] = None
     notes: Optional[str] = None
@@ -346,6 +349,8 @@ class GameStatusResponse(BaseModel):
     is_playing: bool = False
     is_completed: bool = False
     completed_date_note: Optional[str] = None
+    completed_at: Optional[str] = None
+    personal_score: Optional[float] = None
     is_dropped: bool = False
     is_on_hold: bool = False
     notes: Optional[str] = None
@@ -376,6 +381,8 @@ class SearchResultGame(BaseModel):
     release_year: Optional[int] = None
     publisher: Optional[str] = None
     developer: Optional[str] = None
+    completed_at: Optional[str] = None
+    personal_score: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -570,6 +577,8 @@ def init_db():
             is_on_hold INTEGER DEFAULT 0,
             notes TEXT,
             is_printed INTEGER DEFAULT 0,
+            personal_score REAL,
+            completed_at TEXT,
             FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
         );
         """
@@ -583,6 +592,36 @@ def init_db():
     if "is_printed" not in gs_cols:
         cur.execute("ALTER TABLE game_status ADD COLUMN is_printed INTEGER DEFAULT 0")
         logger.info("Migration: added game_status.is_printed column")
+    if "personal_score" not in gs_cols:
+        cur.execute("ALTER TABLE game_status ADD COLUMN personal_score REAL")
+        logger.info("Migration: added game_status.personal_score column")
+    if "completed_at" not in gs_cols:
+        cur.execute("ALTER TABLE game_status ADD COLUMN completed_at TEXT")
+        logger.info("Migration: added game_status.completed_at column")
+
+    # --- Music soundtracks linked to games ---
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_music (
+            game_id INTEGER PRIMARY KEY,
+            music_path TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            FOREIGN KEY(game_id) REFERENCES games(id) ON DELETE CASCADE
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS music_favorites (
+            track_path TEXT PRIMARY KEY,
+            game_id INTEGER,
+            level INTEGER DEFAULT 1,
+            created_at TEXT
+        );
+        """
+    )
 
     cur.execute(
         """
@@ -2524,7 +2563,8 @@ def get_games(cid: int):
             SELECT g.id, g.folder_name, g.title, g.genre, g.description, g.cover_url,
                    g.release_year,
                    COALESCE(gs.is_completed, 0) as is_completed,
-                   COALESCE(gs.is_printed, 0) as is_printed
+                   COALESCE(gs.is_printed, 0) as is_printed,
+                   gs.personal_score
             FROM games g
             LEFT JOIN game_status gs ON g.id = gs.game_id
             WHERE g.console_id = ?
@@ -2565,6 +2605,7 @@ def get_games(cid: int):
                 is_completed=bool(r["is_completed"]),
                 is_printed=bool(r["is_printed"]),
                 release_year=r["release_year"],
+                personal_score=r["personal_score"],
             ))
         return result
     except HTTPException:
@@ -2593,9 +2634,10 @@ def search_games(q: str = Query(..., description="Search query")):
         # OR any word (after space or hyphen) starts with query
         cur.execute("""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name, g.console_id,
-                   g.release_year, g.publisher, g.developer
+                   g.release_year, g.publisher, g.developer, gs.personal_score
             FROM games g
             JOIN consoles c ON g.console_id = c.id
+            LEFT JOIN game_status gs ON g.id = gs.game_id
             WHERE g.title LIKE ? OR g.title LIKE ? OR g.title LIKE ?
             ORDER BY g.title
             LIMIT 50;
@@ -2614,6 +2656,7 @@ def search_games(q: str = Query(..., description="Search query")):
             release_year=r["release_year"],
             publisher=r["publisher"],
             developer=r["developer"],
+            personal_score=r["personal_score"],
         ) for r in rows]
     except Exception as e:
         logger.error(f"Search failed: {e}")
@@ -2648,7 +2691,7 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
                    COALESCE(gs.is_completed, 0) as is_completed,
                    COALESCE(gs.is_printed, 0) as is_printed,
-                   g.release_year, g.publisher, g.developer
+                   g.release_year, g.publisher, g.developer, gs.personal_score
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -2670,6 +2713,7 @@ def get_all_games_by_status(status: str = Query(..., description="Status: favori
             release_year=r["release_year"],
             publisher=r["publisher"],
             developer=r["developer"],
+            personal_score=r["personal_score"],
         ) for r in rows]
     except HTTPException:
         raise
@@ -2710,7 +2754,7 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
                    COALESCE(gs.is_completed, 0) as is_completed,
                    COALESCE(gs.is_printed, 0) as is_printed,
-                   g.release_year, g.publisher, g.developer
+                   g.release_year, g.publisher, g.developer, gs.personal_score
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             LEFT JOIN game_status gs ON g.id = gs.game_id
@@ -2732,12 +2776,46 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
             release_year=r["release_year"],
             publisher=r["publisher"],
             developer=r["developer"],
+            personal_score=r["personal_score"],
         ) for r in rows]
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to get games by status: {e}")
         raise HTTPException(status_code=500, detail="Failed to get games by status")
+
+@app.get("/api/games/completed", response_model=List[SearchResultGame])
+def get_completed_games():
+    """Get list of completed games"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
+                   gs.completed_date_note, gs.completed_at
+            FROM games g
+            JOIN consoles c ON g.console_id = c.id
+            JOIN game_status gs ON g.id = gs.game_id
+            WHERE gs.is_completed = 1
+            ORDER BY g.title;
+        """)
+
+        rows = cur.fetchall()
+        conn.close()
+
+        return [SearchResultGame(
+            id=r["id"],
+            title=r["title"],
+            genre=r["genre"],
+            cover_url=r["cover_url"],
+            console_name=r["console_name"],
+            completed_at=r["completed_at"]
+        ) for r in rows]
+    except Exception as e:
+        logger.error(f"Failed to get completed games: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get completed games")
+
 
 @app.get("/api/games/{game_id}", response_model=GameDetailResponse)
 def get_game_detail(game_id: int):
@@ -6137,39 +6215,32 @@ def get_console_stats(console_id: int):
         raise HTTPException(status_code=500, detail="Failed to get console stats")
 
 # -------------------------------------------------------------------
-# API: Completed Games List
+# API: Completion Timeline
 # -------------------------------------------------------------------
 
-@app.get("/api/games/completed", response_model=List[SearchResultGame])
-def get_completed_games():
-    """Get list of completed games"""
+@app.get("/api/stats/completion-timeline")
+def get_completion_timeline(granularity: str = "month"):
+    """Get completion counts grouped by month or year (from completed_at)"""
     try:
         conn = get_conn()
         cur = conn.cursor()
-        
+        fmt = "%Y" if granularity == "year" else "%Y-%m"
         cur.execute("""
-            SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
-                   gs.completed_date_note
-            FROM games g
-            JOIN consoles c ON g.console_id = c.id
-            JOIN game_status gs ON g.id = gs.game_id
-            WHERE gs.is_completed = 1
-            ORDER BY g.title;
-        """)
-        
+            SELECT strftime(?, completed_at) as period, COUNT(*) as count
+            FROM game_status
+            WHERE is_completed = 1 AND completed_at IS NOT NULL AND completed_at != ''
+            GROUP BY period
+            ORDER BY period;
+        """, (fmt,))
         rows = cur.fetchall()
         conn.close()
-        
-        return [SearchResultGame(
-            id=r["id"],
-            title=r["title"],
-            genre=r["genre"],
-            cover_url=r["cover_url"],
-            console_name=r["console_name"]
-        ) for r in rows]
+        return {
+            "granularity": "year" if granularity == "year" else "month",
+            "items": [{"period": r["period"], "count": r["count"]} for r in rows],
+        }
     except Exception as e:
-        logger.error(f"Failed to get completed games: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get completed games")
+        logger.error(f"Failed to get completion timeline: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get completion timeline")
 
 # -------------------------------------------------------------------
 # API: Game Status
@@ -6208,6 +6279,8 @@ def get_game_status(game_id: int):
             is_playing=bool(row["is_playing"]),
             is_completed=bool(row["is_completed"]),
             completed_date_note=row["completed_date_note"],
+            completed_at=row["completed_at"],
+            personal_score=row["personal_score"],
             is_dropped=bool(row["is_dropped"]),
             is_on_hold=bool(row["is_on_hold"]),
             notes=row["notes"],
@@ -6257,6 +6330,14 @@ def update_game_status(game_id: int, data: GameStatusUpdate):
             updates.append("completed_date_note = ?")
             # Allow setting to empty string to clear the note, or set to the actual value
             params.append(data.completed_date_note)
+        if data.completed_at is not None:
+            updates.append("completed_at = ?")
+            # Empty string clears the date (stored as NULL)
+            params.append(data.completed_at or None)
+        if data.personal_score is not None:
+            updates.append("personal_score = ?")
+            # 0 (or negative) clears the score (stored as NULL)
+            params.append(data.personal_score if data.personal_score > 0 else None)
         if data.is_dropped is not None:
             updates.append("is_dropped = ?")
             params.append(1 if data.is_dropped else 0)
@@ -6484,6 +6565,360 @@ def root():
         "docs": "/docs",
         "health": "/api/health"
     }
+
+# -------------------------------------------------------------------
+# Music library (per-game soundtracks)
+# -------------------------------------------------------------------
+AUDIO_EXTS = {".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+AUDIO_MIME = {
+    ".mp3": "audio/mpeg",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+}
+IMAGE_MIME = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+class MusicPathRequest(BaseModel):
+    path: Optional[str] = None
+
+
+class MusicFavoriteRequest(BaseModel):
+    track_path: str
+    game_id: Optional[int] = None
+    level: Optional[int] = 1
+
+
+def _enc(text: str) -> str:
+    return urllib.parse.quote(text or "", safe="/")
+
+
+def _game_music_path(conn, game_id: int) -> Optional[str]:
+    """Return the real folder path linked to a game, or None."""
+    row = conn.execute("SELECT music_path FROM game_music WHERE game_id=?", (game_id,)).fetchone()
+    if not row or not row["music_path"]:
+        return None
+    p = row["music_path"]
+    if not os.path.isdir(p):
+        return None
+    return os.path.realpath(p)
+
+
+def _safe_music_rel(path: str, root: str) -> Optional[str]:
+    """Resolve a relative path inside root; return relative path or None."""
+    if not path:
+        return None
+    try:
+        full = os.path.realpath(os.path.join(root, path))
+        root_real = os.path.realpath(root)
+        if os.path.commonpath([root_real, full]) != root_real or not os.path.isfile(full):
+            return None
+    except (OSError, ValueError):
+        return None
+    return os.path.relpath(full, root_real)
+
+
+def _music_albums_for(root: str, game_id: int):
+    """Enumerate album units under a game's music folder.
+
+    A folder with audio files directly is its own album. A folder whose
+    subfolders are all discs ("Disc 1", "CD 2", ディスク 3) is one album with
+    the discs flattened in order. Everything else is descended into so each
+    real album becomes a selectable unit.
+    """
+    root_real = os.path.realpath(root)
+
+    def rel_of(full_path: str) -> str:
+        return os.path.relpath(full_path, root_real)
+
+    disc_re = re.compile(r"^(disc|cd|ディスク)\s*\d", re.IGNORECASE)
+
+    def direct_audio(d: str):
+        try:
+            return [f for f in os.listdir(d)
+                    if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in AUDIO_EXTS]
+        except OSError:
+            return []
+
+    def subtree_has_audio(d: str) -> bool:
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            return False
+        for e in entries:
+            full = os.path.join(d, e)
+            if os.path.isfile(full) and os.path.splitext(e)[1].lower() in AUDIO_EXTS:
+                return True
+            if os.path.isdir(full) and subtree_has_audio(full):
+                return True
+        return False
+
+    def descend(units, d):
+        try:
+            entries = sorted(os.listdir(d))
+        except OSError:
+            return
+        audio_now = [f for f in entries
+                     if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in AUDIO_EXTS]
+        subs = [e for e in entries if os.path.isdir(os.path.join(d, e))]
+        if audio_now:
+            units.append({"dir": d, "kind": "flat"})
+            return
+        if not subs:
+            return
+        audio_subs = [s for s in subs if direct_audio(os.path.join(d, s))]
+        if audio_subs and all(disc_re.match(s) for s in audio_subs):
+            units.append({"dir": d, "kind": "discs"})
+            return
+        for s in subs:
+            full = os.path.join(d, s)
+            if subtree_has_audio(full):
+                descend(units, full)
+
+    units = []
+    descend(units, root_real)
+    units.sort(key=lambda u: rel_of(u["dir"]))
+
+    def find_cover(unit):
+        base = unit["dir"]
+        dirs = [base]
+        if unit["kind"] == "discs":
+            try:
+                dirs += [os.path.join(base, s) for s in sorted(
+                    s for s in os.listdir(base) if os.path.isdir(os.path.join(base, s)))]
+            except OSError:
+                pass
+        for d in dirs:
+            try:
+                imgs = sorted(
+                    f for f in os.listdir(d)
+                    if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in IMAGE_EXTS)
+            except OSError:
+                imgs = []
+            if imgs:
+                return rel_of(os.path.join(d, imgs[0]))
+        return None
+
+    def tracks_for(unit):
+        base = unit["dir"]
+        tracks = []
+        if unit["kind"] == "discs":
+            try:
+                discs = sorted(s for s in os.listdir(base) if os.path.isdir(os.path.join(base, s)))
+            except OSError:
+                discs = []
+            i = 1
+            for disc in discs:
+                try:
+                    files = sorted(x for x in os.listdir(os.path.join(base, disc))
+                                   if os.path.isfile(os.path.join(base, disc, x))
+                                   and os.path.splitext(x)[1].lower() in AUDIO_EXTS)
+                except OSError:
+                    files = []
+                for f in files:
+                    full = os.path.join(base, disc, f)
+                    rel = rel_of(full)
+                    tracks.append({
+                        "num": i,
+                        "title": os.path.splitext(f)[0],
+                        "path": full,
+                        "url": f"/api/games/{game_id}/music/stream?p=" + _enc(rel),
+                    })
+                    i += 1
+        else:
+            try:
+                files = sorted(x for x in os.listdir(base)
+                               if os.path.isfile(os.path.join(base, x))
+                               and os.path.splitext(x)[1].lower() in AUDIO_EXTS)
+            except OSError:
+                files = []
+            for i, f in enumerate(files, 1):
+                full = os.path.join(base, f)
+                rel = rel_of(full)
+                tracks.append({
+                    "num": i,
+                    "title": os.path.splitext(f)[0],
+                    "path": full,
+                    "url": f"/api/games/{game_id}/music/stream?p=" + _enc(rel),
+                })
+        return tracks
+
+    result = []
+    for unit in units:
+        rel = rel_of(unit["dir"])
+        if rel in (".", ""):
+            name = os.path.basename(root_real.rstrip("/")) or "Music"
+            rel = ""
+        else:
+            name = os.path.basename(rel)
+        cover = find_cover(unit)
+        result.append({
+            "name": name,
+            "rel_path": rel,
+            "cover_url": (f"/api/games/{game_id}/music/cover?p=" + _enc(cover)) if cover else "",
+            "tracks": tracks_for(unit),
+        })
+    return result
+
+
+@app.get("/api/games/{game_id}/music")
+def get_game_music(game_id: int):
+    conn = get_conn()
+    row = conn.execute("SELECT music_path FROM game_music WHERE game_id=?", (game_id,)).fetchone()
+    conn.close()
+    if not row or not row["music_path"]:
+        return {"path": None}
+    return {"path": row["music_path"]}
+
+
+@app.put("/api/games/{game_id}/music")
+def set_game_music(game_id: int, data: MusicPathRequest):
+    path = (data.path or "").strip().rstrip("/")
+    if not path:
+        raise HTTPException(status_code=400, detail="Music path is required")
+    p_real = os.path.realpath(path)
+    if not os.path.isdir(p_real):
+        raise HTTPException(status_code=400, detail="Folder not found on the server")
+    conn = get_conn()
+    if not conn.execute("SELECT id FROM games WHERE id=?", (game_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Game not found")
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        "INSERT INTO game_music(game_id, music_path, created_at, updated_at) VALUES(?,?,?,?) "
+        "ON CONFLICT(game_id) DO UPDATE SET music_path=excluded.music_path, updated_at=excluded.updated_at",
+        (game_id, p_real, now, now),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "path": p_real}
+
+
+@app.delete("/api/games/{game_id}/music")
+def delete_game_music(game_id: int):
+    conn = get_conn()
+    conn.execute("DELETE FROM game_music WHERE game_id=?", (game_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/games/{game_id}/music/albums")
+def get_game_music_albums(game_id: int):
+    conn = get_conn()
+    root = _game_music_path(conn, game_id)
+    conn.close()
+    if not root:
+        raise HTTPException(status_code=404, detail="No music linked to this game")
+    try:
+        return {"ok": True, "albums": _music_albums_for(root, game_id)}
+    except OSError:
+        raise HTTPException(status_code=500, detail="Could not scan music folder")
+
+
+@app.get("/api/games/{game_id}/music/stream")
+def stream_game_music(game_id: int, p: str = Query(...)):
+    conn = get_conn()
+    root = _game_music_path(conn, game_id)
+    conn.close()
+    if not root:
+        raise HTTPException(status_code=404, detail="No music linked to this game")
+    rel = _safe_music_rel(p, root)
+    if not rel:
+        raise HTTPException(status_code=404, detail="Track not found")
+    ext = os.path.splitext(rel)[1].lower()
+    return FileResponse(os.path.join(root, rel), media_type=AUDIO_MIME.get(ext, "application/octet-stream"))
+
+
+@app.get("/api/games/{game_id}/music/cover")
+def stream_game_music_cover(game_id: int, p: str = Query(...)):
+    conn = get_conn()
+    root = _game_music_path(conn, game_id)
+    conn.close()
+    if not root:
+        raise HTTPException(status_code=404, detail="No music linked to this game")
+    rel = _safe_music_rel(p, root)
+    if not rel:
+        raise HTTPException(status_code=404, detail="Cover not found")
+    ext = os.path.splitext(rel)[1].lower()
+    return FileResponse(os.path.join(root, rel), media_type=IMAGE_MIME.get(ext, "image/jpeg"))
+
+
+@app.get("/api/music/library")
+def list_music_library():
+    """All games with a linked soundtrack folder, alphabetical by title."""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT g.id, g.title, g.cover_url, c.name as console_name "
+            "FROM games g JOIN game_music gm ON gm.game_id = g.id "
+            "LEFT JOIN consoles c ON g.console_id = c.id "
+            "ORDER BY g.title COLLATE NOCASE"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {"items": [{
+        "id": r["id"],
+        "title": r["title"],
+        "cover_url": r["cover_url"],
+        "console_name": r["console_name"],
+    } for r in rows]}
+
+
+@app.get("/api/music/favorites")
+def list_music_favorites():
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT track_path, game_id, level, created_at FROM music_favorites "
+        "ORDER BY level DESC, created_at DESC"
+    ).fetchall()
+    conn.close()
+    return {"items": [{
+        "track_path": r["track_path"],
+        "game_id": r["game_id"],
+        "level": r["level"],
+        "title": os.path.splitext(os.path.basename(r["track_path"]))[0],
+    } for r in rows]}
+
+
+@app.post("/api/music/favorites")
+def upsert_music_favorite(data: MusicFavoriteRequest):
+    path = (data.track_path or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="track_path is required")
+    level = int(data.level or 1)
+    conn = get_conn()
+    if level <= 0:
+        conn.execute("DELETE FROM music_favorites WHERE track_path=?", (path,))
+    else:
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO music_favorites(track_path, game_id, level, created_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(track_path) DO UPDATE SET level=excluded.level, game_id=excluded.game_id",
+            (path, data.game_id, level, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"ok": True, "level": level}
+
+
+@app.delete("/api/music/favorites")
+def delete_music_favorite(path: str = Query(...)):
+    conn = get_conn()
+    conn.execute("DELETE FROM music_favorites WHERE track_path=?", (path,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
 
 if __name__ == "__main__":
     import uvicorn

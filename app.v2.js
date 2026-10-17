@@ -25,6 +25,8 @@ let currentGameDetail = null; // For modal
 let activeFilter = null;
 let activeGenreFilter = null;
 let activeStatusFilter = null;
+let seriesAlphaFilter = null;
+let collectionsAlphaFilter = null;
 let currentPage = 1;
 const PAGE_SIZE = 20;
 
@@ -531,6 +533,7 @@ async function openEditGameModal(gameId) {
     document.getElementById("edit-status-on-hold").checked = status.is_on_hold;
     document.getElementById("edit-status-printed").checked = status.is_printed;
     document.getElementById("edit-completed-date").value = status.completed_date_note || "";
+    document.getElementById("edit-completed-at").value = status.completed_at || "";
     document.getElementById("edit-game-notes").value = status.notes || "";
     
     // Show/hide completed date field
@@ -546,6 +549,7 @@ async function openEditGameModal(gameId) {
     document.getElementById("edit-status-on-hold").checked = false;
     document.getElementById("edit-status-printed").checked = false;
     document.getElementById("edit-completed-date").value = "";
+    document.getElementById("edit-completed-at").value = "";
     document.getElementById("edit-game-notes").value = "";
     document.getElementById("completed-date-label").classList.add("hidden");
   }
@@ -582,6 +586,7 @@ async function onSaveGameEdit() {
 
     // Save status
     const completedNoteValue = document.getElementById("edit-completed-date").value.trim();
+    const completedAtValue = document.getElementById("edit-completed-at").value.trim();
     const notesValue = document.getElementById("edit-game-notes").value.trim();
     const statusData = {
       is_favorite: document.getElementById("edit-status-favorite").checked,
@@ -589,6 +594,7 @@ async function onSaveGameEdit() {
       is_playing: document.getElementById("edit-status-playing").checked,
       is_completed: document.getElementById("edit-status-completed").checked,
       completed_date_note: completedNoteValue || "",
+      completed_at: completedAtValue || "",
       is_dropped: document.getElementById("edit-status-dropped").checked,
       is_on_hold: document.getElementById("edit-status-on-hold").checked,
       is_printed: document.getElementById("edit-status-printed").checked,
@@ -1160,7 +1166,13 @@ function renderCollections() {
     return;
   }
 
-  collections.forEach((c) => {
+  const visible = collections.filter((c) => alphaMatches(collectionsAlphaFilter, c.name));
+  if (visible.length === 0) {
+    container.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">No collections match this filter.</p>';
+    return;
+  }
+
+  visible.forEach((c) => {
     container.appendChild(createCollectionGridCard(c));
   });
 }
@@ -1212,8 +1224,12 @@ function showCollectionsListView() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
   $("#collections-list-view").classList.remove("hidden");
+
+  collectionsAlphaFilter = null;
+  renderCollectionsAlphaIndex();
 
   savePageState();
   loadCollections();
@@ -1421,6 +1437,7 @@ function openSeriesCreateView() {
   $(".metadata-actions").style.display = "none";
   $("#game-list").style.display = "none";
   $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#collections-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
@@ -1610,6 +1627,7 @@ async function selectSeries(id) {
     $("#search-results").classList.add("hidden");
     $("#series-create-view").classList.add("hidden");
     $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
     $("#collections-list-view").classList.add("hidden");
     $("#collections-create-view").classList.add("hidden");
     $(".console-summary").style.display = "none";
@@ -1883,7 +1901,14 @@ function showSeriesListView() {
   $("#collections-create-view").classList.add("hidden");
   $("#series-list-view").classList.remove("hidden");
 
+  seriesAlphaFilter = null;
+  const seriesGroupSel = $("#series-group-select");
+  if (seriesGroupSel) seriesGroupSel.value = "all";
+  const seriesAlphaEl = $("#series-alpha-index");
+  if (seriesAlphaEl) seriesAlphaEl.style.display = "";
+
   savePageState();
+  renderSeriesAlphaIndex();
   renderSeriesGrid();
 }
 
@@ -1897,33 +1922,14 @@ function renderSeriesGrid() {
     return;
   }
 
-  seriesList.forEach((s) => {
-    const card = document.createElement("article");
-    card.className = "game-card series-grid-card";
+  const visible = seriesList.filter((s) => alphaMatches(seriesAlphaFilter, s.name));
+  if (visible.length === 0) {
+    container.innerHTML = '<p style="color: var(--text-muted); padding: 20px;">No series match this filter.</p>';
+    return;
+  }
 
-    const coverUrl = s.cover_url ? toAbsoluteUrl(s.cover_url) : "";
-    const cover = coverUrl
-      ? `<img src="${coverUrl}" alt="${s.name}" />`
-      : `<div class="no-cover">📚</div>`;
-
-    card.innerHTML = `
-      <div class="game-cover">${cover}</div>
-      <div class="game-title">${s.name}</div>
-      <div class="game-meta">
-        <span class="game-console-badge">${s.game_count} games</span>
-        ${s.genre ? `<span class="genre-badge">${s.genre}</span>` : ''}
-      </div>
-      <button class="series-edit-grid-btn" onclick="openSeriesEditModal(${s.id}, event)" title="Edit series"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
-      <button class="series-delete-grid-btn" onclick="deleteSeries(${s.id}, event)" title="Delete series"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
-    `;
-
-    card.addEventListener("click", (e) => {
-      if (e.target.closest('.series-delete-grid-btn')) return;
-      if (e.target.closest('.series-edit-grid-btn')) return;
-      selectSeries(s.id);
-    });
-
-    container.appendChild(card);
+  visible.forEach((s) => {
+    container.appendChild(createSeriesGridCard(s));
   });
 }
 
@@ -1932,31 +1938,44 @@ function groupSeriesView(mode) {
   if (!container) return;
   container.innerHTML = "";
 
+  const alphaIndex = $("#series-alpha-index");
+
   if (mode === "genre") {
+    if (alphaIndex) seriesAlphaEl.style.display = "none";
     container.classList.remove("game-list");
-    // Group by genre
+    // Group by genre (multi-genre series appear under each genre)
     const genreGroups = {};
     seriesList.forEach((s) => {
-      const genre = s.genre || "Uncategorized";
-      if (!genreGroups[genre]) genreGroups[genre] = [];
-      genreGroups[genre].push(s);
-    });
-
-    Object.keys(genreGroups).sort().forEach((genre) => {
-      const heading = document.createElement("h3");
-      heading.className = "series-genre-heading";
-      heading.textContent = genre;
-      container.appendChild(heading);
-
-      const grid = document.createElement("div");
-      grid.className = "game-list";
-      genreGroups[genre].forEach((s) => {
-        grid.appendChild(createSeriesGridCard(s));
+      const raw = (s.genre || "").trim();
+      const genres = raw
+        ? raw.split(",").map((g) => g.trim()).filter(Boolean)
+        : [];
+      if (genres.length === 0) genres.push("Uncategorized");
+      genres.forEach((genre) => {
+        if (!genreGroups[genre]) genreGroups[genre] = [];
+        genreGroups[genre].push(s);
       });
-      container.appendChild(grid);
     });
+
+    Object.keys(genreGroups)
+      .sort((a, b) => a.localeCompare(b))
+      .forEach((genre) => {
+        const heading = document.createElement("h3");
+        heading.className = "series-genre-heading";
+        heading.textContent = genre;
+        container.appendChild(heading);
+
+        const grid = document.createElement("div");
+        grid.className = "game-list";
+        genreGroups[genre].forEach((s) => {
+          grid.appendChild(createSeriesGridCard(s));
+        });
+        container.appendChild(grid);
+      });
   } else {
+    if (seriesAlphaEl) seriesAlphaEl.style.display = "";
     container.classList.add("game-list");
+    renderSeriesAlphaIndex();
     renderSeriesGrid();
   }
 }
@@ -2437,9 +2456,67 @@ async function loadStats() {
     $("#stat-favorites .stat-number").textContent = stats.favorites_count || 0;
     
     renderStatusFilters();
+    loadCompletionChart();
   } catch (e) {
     console.error("Failed to load stats:", e);
   }
+}
+
+// -----------------------------------------------------------
+// Completion Timeline Chart (homepage)
+// -----------------------------------------------------------
+async function loadCompletionChart() {
+  const container = $("#completion-chart");
+  if (!container) return;
+
+  let data;
+  try {
+    data = await apiCall("/stats/completion-timeline?granularity=month");
+  } catch (e) {
+    container.innerHTML = "";
+    return;
+  }
+
+  const items = (data && data.items) || [];
+  if (items.length === 0) {
+    container.innerHTML = '<p class="no-items">No completion dates recorded yet</p>';
+    return;
+  }
+
+  const maxCount = Math.max(...items.map((i) => i.count), 1);
+  const barWidth = 26;
+  const gap = 10;
+  const chartHeight = 130;
+  const labelSpace = 26;
+  const width = items.length * (barWidth + gap) + gap;
+  const height = chartHeight + labelSpace;
+
+  const bars = items
+    .map((item, idx) => {
+      const barH = Math.round((item.count / maxCount) * (chartHeight - 20));
+      const x = gap + idx * (barWidth + gap);
+      const y = chartHeight - barH;
+      const label = formatChartPeriod(item.period);
+      return `
+        <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="var(--accent)" opacity="0.85">
+          <title>${label}: ${item.count}</title>
+        </rect>
+        <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${item.count}</text>
+        <text x="${x + barWidth / 2}" y="${chartHeight + 16}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${label}</text>
+      `;
+    })
+    .join("");
+
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Games completed per month">${bars}</svg>`;
+}
+
+function formatChartPeriod(period) {
+  if (!period) return "";
+  const parts = String(period).split("-");
+  if (parts.length < 2) return period;
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const m = parseInt(parts[1], 10);
+  return `${months[m - 1] || parts[1]} ${parts[0].slice(2)}`;
 }
 
 async function loadRecentlyViewed() {
@@ -2567,6 +2644,7 @@ function goToHomepage() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#collections-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
   $("#game-list").style.display = "";
@@ -2591,6 +2669,7 @@ function renderHomepage() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#collections-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
   
@@ -2610,6 +2689,7 @@ function showConsoleView() {
   $("#series-create-view").classList.add("hidden");
   $("#series-detail-view").classList.add("hidden");
   $("#series-list-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#collections-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
   
@@ -2692,6 +2772,11 @@ function createGameCard(game, consoleName) {
 
   const yearBadge = game.release_year ? `<span class="game-year-badge">${game.release_year}</span>` : '';
 
+  const score = Math.round(game.personal_score || 0);
+  const starsBadge = score > 0
+    ? `<span class="game-stars-badge" title="Your rating: ${score}/6">${"★".repeat(score)}</span>`
+    : '';
+
   const coverConsoleId = game.console_id != null ? game.console_id : currentConsoleId;
 
   card.innerHTML = `
@@ -2699,6 +2784,7 @@ function createGameCard(game, consoleName) {
       ${cover}
       <button class="game-info-btn" onclick="showGameInfo(event, ${game.id})" title="Game info">ℹ️</button>
       ${yearBadge}
+      ${starsBadge}
     </div>
     <div class="game-title">${game.title}</div>
     <div class="game-meta">${game.genre || "Unknown genre"}</div>
@@ -2899,8 +2985,45 @@ async function saveGameStatus(gameId, statusData) {
   }
 }
 
-async function recordGameView(gameId) {
-  try {
+function formatDisplayDate(iso) {
+  if (!iso) return "";
+  const s = String(iso).trim();
+  if (!s) return "";
+  const d = new Date(s.length <= 10 ? s + "T00:00:00" : s);
+  if (isNaN(d.getTime())) return s;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+async function setGameStars(gameId, value) {
+  const current = Math.round(currentGameStatus?.personal_score || 0);
+  const newScore = value === current ? 0 : value;
+  const ok = await saveGameStatus(gameId, { personal_score: newScore });
+  if (!ok) return;
+
+  const stored = newScore > 0 ? newScore : null;
+  if (currentGameStatus) currentGameStatus.personal_score = stored;
+  if (currentGameDetail) currentGameDetail.personal_score = stored;
+  const list = gamesByConsole[currentConsoleId] || [];
+  const g = list.find((x) => x.id === gameId);
+  if (g) g.personal_score = stored;
+
+  const ratingEl = document.getElementById("game-detail-rating");
+  if (ratingEl) {
+    ratingEl.dataset.score = String(newScore);
+    ratingEl.innerHTML = [1, 2, 3, 4, 5, 6]
+      .map(
+        (n) =>
+          `<span class="star ${n <= newScore ? "filled" : ""}" onclick="setGameStars(${gameId}, ${n})" title="${n} star${n > 1 ? "s" : ""}">★</span>`
+      )
+      .join("");
+    const valueEl = ratingEl.parentElement?.querySelector(".star-value");
+    if (valueEl) valueEl.textContent = `${newScore}/6`;
+  }
+
+  renderGamesForCurrentConsole();
+}
+
+async function recordGameView(gameId) {  try {
     await apiCall(`/games/${gameId}/view`, { method: "POST" });
   } catch (e) {
     // Silently fail - not critical
@@ -4442,6 +4565,54 @@ async function loadGamesForConsole(consoleId) {
 // -----------------------------------------------------------
 // Alphabetical index (0–9 + A–Z + All)
 // -----------------------------------------------------------
+function alphaMatches(filter, name) {
+  if (!filter) return true;
+  const n = (name || "").toUpperCase();
+  if (filter === "0-9") return /^[0-9]/.test(n);
+  return n.startsWith(filter);
+}
+
+function renderAlphaIndexButtons(container, current, onChange) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  const numBtn = document.createElement("button");
+  numBtn.className = current === "0-9" ? "active" : "secondary";
+  numBtn.textContent = "0–9";
+  numBtn.addEventListener("click", () => onChange("0-9"));
+  container.appendChild(numBtn);
+
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach((letter) => {
+    const btn = document.createElement("button");
+    btn.className = current === letter ? "active" : "secondary";
+    btn.textContent = letter;
+    btn.addEventListener("click", () => onChange(letter));
+    container.appendChild(btn);
+  });
+
+  const allBtn = document.createElement("button");
+  allBtn.className = current === null ? "active" : "secondary";
+  allBtn.textContent = "All";
+  allBtn.addEventListener("click", () => onChange(null));
+  container.appendChild(allBtn);
+}
+
+function renderSeriesAlphaIndex() {
+  renderAlphaIndexButtons($("#series-alpha-index"), seriesAlphaFilter, (letter) => {
+    seriesAlphaFilter = letter;
+    renderSeriesAlphaIndex();
+    renderSeriesGrid();
+  });
+}
+
+function renderCollectionsAlphaIndex() {
+  renderAlphaIndexButtons($("#collections-alpha-index"), collectionsAlphaFilter, (letter) => {
+    collectionsAlphaFilter = letter;
+    renderCollectionsAlphaIndex();
+    renderCollections();
+  });
+}
+
 function renderAlphaIndex() {
   const container = $("#alpha-index");
   container.innerHTML = "";
@@ -4909,15 +5080,21 @@ function renderGameDetail(game) {
       </div>`
     : '';
 
-  // Check for completed status and note
+  // Check for completed status, date and note
   const completedNote = currentGameStatus?.completed_date_note;
   const hasCompletedNote = completedNote && completedNote.trim().length > 0;
   const notePreview = hasCompletedNote ? getNotePreview(completedNote) : '';
-  
-  const completedHtml = hasCompletedNote
+
+  const completedAt = currentGameStatus?.completed_at;
+  const hasCompletedAt = !!(completedAt && String(completedAt).trim());
+
+  const completedHtml = (hasCompletedNote || hasCompletedAt)
     ? `<p class="game-detail-completed">
-        <span class="completed-indicator" data-note="${escapeHtml(completedNote)}" onclick="openCompletedCommentModal(this)" title="Click to view completion notes">✅</span>
-        <span class="completed-preview">${notePreview}</span>
+        ${hasCompletedNote
+          ? `<span class="completed-indicator" data-note="${escapeHtml(completedNote)}" onclick="openCompletedCommentModal(this)" title="Click to view completion notes">✅</span>`
+          : `<span class="completed-indicator" title="Completed">✅</span>`}
+        ${hasCompletedAt ? `<span class="completed-preview">${formatDisplayDate(completedAt)}</span>` : ''}
+        ${hasCompletedNote ? `<span class="completed-preview">${notePreview}</span>` : ''}
       </p>`
     : '';
 
@@ -4932,6 +5109,21 @@ function renderGameDetail(game) {
         <span class="completed-preview">${notesPreview}</span>
       </p>`
     : '';
+
+  // Personal star rating (0-6)
+  const scoreInt = Math.round(currentGameStatus?.personal_score || 0);
+  const starsHtml = [1, 2, 3, 4, 5, 6]
+    .map(
+      (n) =>
+        `<span class="star ${n <= scoreInt ? "filled" : ""}" onclick="setGameStars(${game.id}, ${n})" title="${n} star${n > 1 ? "s" : ""}">★</span>`
+    )
+    .join("");
+  const ratingHtml = `
+    <div class="game-detail-rating">
+      <strong>Rating:</strong>
+      <span class="star-rating" id="game-detail-rating" data-score="${scoreInt}">${starsHtml}</span>
+      ${scoreInt > 0 ? `<span class="star-value">${scoreInt}/6</span>` : ''}
+    </div>`;
 
   const content = modal.querySelector(".modal-game-content");
   if (!content) return;
@@ -4991,6 +5183,7 @@ function renderGameDetail(game) {
         <div class="game-detail-info">
           <h2>${game.title}</h2>
           <p class="game-detail-genre"><strong>Genre:</strong> ${game.genre || "Unknown"}</p>
+          ${ratingHtml}
           <div class="game-detail-desc"><strong>Description:</strong> ${renderMarkdown(currentDescription)}</div>
           ${descPaginationHtml}
           ${completedHtml}
@@ -5014,11 +5207,16 @@ function renderGameDetail(game) {
           <div id="series-suggestions" class="collection-suggestions" style="display:none;"></div>
         </div>
       </div>
+      <div class="game-detail-collections" id="game-detail-music">
+        <h3>🎵 Music</h3>
+        <div id="game-music-content"></div>
+      </div>
     </div>
   `;
 
   renderGameDetailCollections(game);
   renderGameDetailSeries(game);
+  renderGameDetailMusic(game);
 }
 
 async function renderGameDetailCollections(game) {
@@ -5604,6 +5802,7 @@ async function onSaveTheme() {
   const theme = {
     bgColor,
     accent,
+    consoleBadgeColor: $("#theme-console-badge-color").value,
     headerImage,
     iconMatchAccent: $("#theme-icon-match-accent").checked,
     iconColor: $("#theme-icon-color").value,
@@ -5865,6 +6064,10 @@ async function populateThemeModal() {
         const accentInput = $("#theme-accent-color");
         if (accentInput) accentInput.value = theme.accent;
       }
+      if (theme.consoleBadgeColor) {
+        const badgeInput = $("#theme-console-badge-color");
+        if (badgeInput) badgeInput.value = theme.consoleBadgeColor;
+      }
       if (theme.iconMatchAccent !== undefined) {
         const iconAccentCb = $("#theme-icon-match-accent");
         if (iconAccentCb) iconAccentCb.checked = !!theme.iconMatchAccent;
@@ -5961,6 +6164,9 @@ function applyTheme(theme) {
   }
   if (theme.accent) {
     document.documentElement.style.setProperty("--accent", theme.accent);
+  }
+  if (theme.consoleBadgeColor) {
+    document.documentElement.style.setProperty("--console-badge-text", theme.consoleBadgeColor);
   }
   if (theme.headerImage) {
     headerGeneration++;
@@ -6353,6 +6559,7 @@ function initSidebarIcons() {
   setSidebarIcon("status-section-icon", "/ico/status.svg");
   setSidebarIcon("collections-section-icon", "/ico/collection.svg");
   setSidebarIcon("series-section-icon", "/ico/series.svg");
+  setSidebarIcon("music-section-icon", "/ico/music.svg");
   setSidebarIcon("detail-section-icon", "/ico/game-details.svg");
 }
 
@@ -6401,4 +6608,473 @@ function initGameListSwipe() {
     }
     swipeLocked = false;
   }, { passive: true });
+}
+
+// -----------------------------------------------------------
+// Music player (per-game soundtracks)
+// -----------------------------------------------------------
+const musicAudio = new Audio();
+let musicAlbums = [];
+let musicAlbumIdx = 0;
+let musicTrackIdx = 0;
+let musicOwnerId = null;
+let musicPath = null;
+let musicLoaded = false;
+let musicFavorites = {};
+let musicLibrary = [];
+let musicLibraryLetter = null;
+
+try {
+  const _v = parseFloat(localStorage.getItem("game_music_volume"));
+  if (isFinite(_v) && _v >= 0 && _v <= 1) musicAudio.volume = _v;
+} catch (e) {}
+
+function musicLetterKey(title) {
+  const ch = (title || "?").trim().charAt(0).toUpperCase();
+  return /[A-Z]/.test(ch) ? ch : "#";
+}
+
+async function showMusicListView() {
+  currentView = "music-list";
+  currentConsoleId = null;
+  currentCollectionId = null;
+  currentSeriesId = null;
+  currentSeriesGames = [];
+  activeFilter = null;
+  activeGenreFilter = null;
+  activeStatusFilter = null;
+  statusFilteredGames = [];
+  currentPage = 1;
+
+  $("#homepage").classList.add("hidden");
+  $("#search-results").classList.add("hidden");
+  $(".console-summary").style.display = "none";
+  $("#console-toolbar").style.display = "none";
+  $(".metadata-actions").style.display = "none";
+  $("#game-list").style.display = "none";
+  $("#series-create-view").classList.add("hidden");
+  $("#series-detail-view").classList.add("hidden");
+  $("#series-list-view").classList.add("hidden");
+  $("#collections-list-view").classList.add("hidden");
+  $("#collections-create-view").classList.add("hidden");
+  $("#music-list-view").classList.remove("hidden");
+
+  musicLibraryLetter = null;
+  renderMusicAlphaIndex();
+  renderMusicFavorites();
+
+  try {
+    const res = await apiCall("/music/library");
+    musicLibrary = (res && res.items) || [];
+  } catch (e) {
+    musicLibrary = [];
+  }
+  renderMusicLibraryGrid();
+}
+
+function renderMusicAlphaIndex() {
+  renderAlphaIndexButtons($("#music-alpha-index"), musicLibraryLetter, (letter) => {
+    musicLibraryLetter = letter;
+    renderMusicAlphaIndex();
+    renderMusicLibraryGrid();
+  });
+}
+
+function renderMusicLibraryGrid() {
+  const grid = $("#music-library-grid");
+  const countEl = $("#music-library-count");
+  if (!grid) return;
+  if (countEl) countEl.textContent = `${musicLibrary.length} soundtrack${musicLibrary.length === 1 ? "" : "s"}`;
+
+  let items = musicLibrary;
+  if (musicLibraryLetter !== null) {
+    items = items.filter((g) => alphaMatches(musicLibraryLetter, g.title));
+  }
+
+  if (items.length === 0) {
+    grid.innerHTML =
+      `<p style="color: var(--text-muted); padding: 20px;">${musicLibraryLetter !== null
+        ? "No soundtracks under that letter yet."
+        : "No soundtracks linked yet — open a game, go to its 🎵 Music section and paste the folder path to link it."}</p>`;
+    return;
+  }
+
+  grid.innerHTML = items
+    .map((g) => {
+      const cover = g.cover_url
+        ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes("?") ? "&" : "?"}t=${Date.now()}" alt="${escapeHtml(g.title)} cover" />`
+        : `<div class="no-cover">No cover</div>`;
+      return `
+        <article class="game-card" onclick="openGameDetail(${g.id})">
+          <div class="game-cover ${aspectClassForConsole(null)}" style="position: relative;">
+            ${cover}
+            <span class="game-stars-badge" style="color:var(--accent)">🎵</span>
+          </div>
+          <div class="game-title">${escapeHtml(g.title)}</div>
+          <div class="game-meta">${g.console_name ? escapeHtml(g.console_name) : ""}</div>
+        </article>`;
+    })
+    .join("");
+}
+
+async function renderMusicFavorites() {
+  const favBox = $("#music-favorites");
+  const superBox = $("#music-super-favorites");
+  const favSection = $("#music-favorites-section");
+  const superSection = $("#music-super-favorites-section");
+  if (!favBox || !superBox) return;
+
+  try {
+    const res = await apiCall("/music/favorites");
+    const items = (res && res.items) || [];
+    musicFavorites = {};
+    items.forEach((it) => {
+      musicFavorites[it.track_path] = it.level;
+    });
+    const superFavs = items.filter((i) => i.level >= 2);
+    const favs = items.filter((i) => i.level === 1);
+
+    const renderList = (list, box, section) => {
+      if (!list.length) {
+        if (section) section.classList.add("hidden");
+        box.innerHTML = "";
+        return;
+      }
+      if (section) section.classList.remove("hidden");
+      box.innerHTML = list
+        .map(
+          (it) => `
+          <div class="music-fav-item" onclick="playFavoriteTrack(${it.game_id}, this.dataset.path)" data-path="${escapeHtml(it.track_path)}">
+            <span class="fav-title">${escapeHtml(it.title)}</span>
+            <span class="fav-game">${it.game_id ? "#" + it.game_id : ""}</span>
+          </div>`
+        )
+        .join("");
+    };
+    renderList(superFavs, superBox, superSection);
+    renderList(favs, favBox, favSection);
+  } catch (e) {
+    favBox.innerHTML = "";
+    superBox.innerHTML = "";
+    if (favSection) favSection.classList.add("hidden");
+    if (superSection) superSection.classList.add("hidden");
+  }
+}
+
+async function playFavoriteTrack(gameId, trackPath) {
+  if (!gameId) {
+    showToast("This track has no linked game", "warning");
+    return;
+  }
+  musicOwnerId = gameId;
+  musicAlbumIdx = 0;
+  musicTrackIdx = 0;
+  await loadMusicAlbums(false);
+  const album = currentAlbum();
+  if (!album) return;
+  const idx = album.tracks.findIndex((t) => t.path === trackPath);
+  if (idx < 0) {
+    showToast("Track not found in the linked folder", "warning");
+    return;
+  }
+  playMusicTrack(idx);
+}
+
+// ----- player -----
+function currentAlbum() {
+  return (musicAlbums && musicAlbums[musicAlbumIdx]) || null;
+}
+
+function currentTrack() {
+  const a = currentAlbum();
+  return (a && a.tracks && a.tracks[musicTrackIdx]) || null;
+}
+
+async function loadMusicAlbums(autoplay) {
+  if (!musicOwnerId) return;
+  try {
+    const res = await apiCall(`/games/${musicOwnerId}/music/albums`);
+    const albums = (res && res.albums) || [];
+    if (!albums.length) {
+      showToast("No albums found in that folder", "warning");
+      musicAlbums = [];
+      return;
+    }
+    musicAlbums = albums;
+    musicLoaded = true;
+    musicAlbumIdx = Math.min(musicAlbumIdx, musicAlbums.length - 1);
+    if (musicTrackIdx >= (currentAlbum()?.tracks.length || 0)) musicTrackIdx = 0;
+    renderMusic();
+    if (autoplay) playMusicTrack(0);
+  } catch (e) {
+    // apiCall surfaced the error
+  }
+}
+
+function renderMusic() {
+  const panel = $("#music-panel");
+  if (panel) {
+    panel.classList.remove("hidden");
+  }
+  const alb = currentAlbum();
+  const sel = $("#music-album");
+  if (sel && musicAlbums.length) {
+    sel.innerHTML = musicAlbums
+      .map((a, i) => `<option value="${i}">${escapeHtml(a.name)} · ${a.tracks.length} tracks</option>`)
+      .join("");
+    sel.selectedIndex = musicAlbumIdx;
+  }
+  const list = $("#music-tracklist");
+  if (list && alb) {
+    list.innerHTML = alb.tracks
+      .map((t, i) => {
+        const lvl = musicFavorites[t.path] || 0;
+        const star = lvl >= 2 ? "★★" : lvl === 1 ? "★" : "☆";
+        return `<div class="music-track ${i === musicTrackIdx ? "active" : ""}" onclick="playMusicTrack(${i})">
+          <span class="music-track-num">${String(t.num).padStart(2, "0")}</span>
+          <span class="music-track-title">${escapeHtml(t.title)}</span>
+          <button class="music-track-fav lv${lvl}" data-path="${escapeHtml(t.path)}" onclick="cycleTrackFav(event, this)" title="Favourite (click to cycle)">${star}</button>
+        </div>`;
+      })
+      .join("");
+  }
+  const cover = $("#music-cover");
+  if (cover) {
+    if (alb && alb.cover_url) {
+      cover.src = toAbsoluteUrl(alb.cover_url) + `?t=${Date.now()}`;
+      cover.style.display = "";
+    } else {
+      cover.removeAttribute("src");
+      cover.style.display = "none";
+    }
+  }
+  updateMusicMarquee();
+}
+
+function updateMusicMarquee() {
+  const el = $("#music-marquee-text");
+  if (!el) return;
+  const t = currentTrack();
+  el.textContent = t ? t.title : "";
+  restartMarquee(el);
+}
+
+function restartMarquee(el) {
+  if (!el) return;
+  el.classList.remove("anim");
+  void el.offsetWidth;
+  if (el.textContent) {
+    el.style.animationDuration = `${Math.max(8, Math.round(el.textContent.length / 3) + 6)}s`;
+    el.classList.add("anim");
+  }
+}
+
+function musicSwitchAlbum() {
+  const sel = $("#music-album");
+  if (!sel) return;
+  const i = parseInt(sel.value || "0", 10);
+  if (isNaN(i) || !musicAlbums[i]) return;
+  musicAlbumIdx = i;
+  musicTrackIdx = 0;
+  renderMusic();
+  playMusicTrack(0);
+}
+
+function playMusicTrack(i) {
+  const a = currentAlbum();
+  if (!a || !a.tracks || !a.tracks[i]) return;
+  musicTrackIdx = i;
+  const t = a.tracks[i];
+  renderMusic();
+  musicAudio.src = toAbsoluteUrl(t.url);
+  musicAudio.play().catch(() => showToast("Could not play track", "warning"));
+}
+
+function toggleMusicPlay() {
+  if (!currentTrack()) return;
+  if (musicAudio.paused) {
+    if (!musicAudio.src) {
+      playMusicTrack(musicTrackIdx);
+      return;
+    }
+    musicAudio.play().catch(() => showToast("Could not play", "warning"));
+  } else {
+    musicAudio.pause();
+  }
+}
+
+function musicStep(dir) {
+  const a = currentAlbum();
+  if (!a || !a.tracks.length) return;
+  const n = a.tracks.length;
+  musicTrackIdx = (musicTrackIdx + dir + n) % n;
+  playMusicTrack(musicTrackIdx);
+}
+
+function musicSeek(v) {
+  if (!musicAudio.duration || isNaN(musicAudio.duration)) return;
+  musicAudio.currentTime = (v / 1000) * musicAudio.duration;
+}
+
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) return "0:00";
+  const m = Math.floor(s / 60);
+  const ss = Math.floor(s % 60);
+  return `${m}:${String(ss).padStart(2, "0")}`;
+}
+
+function setMusicVolume(v) {
+  const val = Math.max(0, Math.min(1, parseFloat(v) || 0));
+  musicAudio.volume = val;
+  try {
+    localStorage.setItem("game_music_volume", String(val));
+  } catch (e) {}
+}
+
+function toggleMusicInfo() {
+  const box = $("#music-info");
+  const btn = $("#music-info-btn");
+  const txt = $("#music-info-text");
+  if (!box) return;
+  const show = box.classList.toggle("hidden");
+  if (btn) btn.classList.toggle("active", !show);
+  if (txt) {
+    txt.textContent = currentAlbum() && currentAlbum().rel_path ? currentAlbum().rel_path : "";
+    restartMarquee(txt);
+  }
+}
+
+async function cycleTrackFav(event, btn) {
+  if (event) event.stopPropagation();
+  const trackPath = btn.dataset.path;
+  if (!trackPath) return;
+  const cur = musicFavorites[trackPath] || 0;
+  const next = cur >= 2 ? 0 : cur + 1;
+  try {
+    await apiCall(`/music/favorites`, {
+      method: "POST",
+      body: JSON.stringify({ track_path: trackPath, game_id: musicOwnerId, level: next }),
+    });
+    musicFavorites[trackPath] = next;
+    btn.className = `music-track-fav lv${next}`;
+    btn.textContent = next >= 2 ? "★★" : next === 1 ? "★" : "☆";
+    renderMusicFavorites();
+  } catch (e) {
+    // error already shown
+  }
+}
+
+function closeMusic() {
+  musicAudio.pause();
+  musicAudio.removeAttribute("src");
+  musicAudio.load();
+  const panel = $("#music-panel");
+  if (panel) panel.classList.add("hidden");
+  const play = $("#music-play");
+  if (play) play.textContent = "▶";
+}
+
+musicAudio.addEventListener("ended", () => musicStep(1));
+musicAudio.addEventListener("play", () => {
+  const p = $("#music-play");
+  if (p) p.textContent = "⏸";
+});
+musicAudio.addEventListener("pause", () => {
+  const p = $("#music-play");
+  if (p) p.textContent = "▶";
+});
+musicAudio.addEventListener("timeupdate", () => {
+  const seek = $("#music-seek");
+  const t = $("#music-time");
+  if (!seek || !t) return;
+  if (!musicAudio.duration || isNaN(musicAudio.duration)) {
+    t.textContent = "0:00 / 0:00";
+    return;
+  }
+  seek.value = String(Math.round((musicAudio.currentTime / musicAudio.duration) * 1000));
+  t.textContent = `${fmtTime(musicAudio.currentTime)} / ${fmtTime(musicAudio.duration)}`;
+});
+
+// ----- album loading for the player -----
+async function openMusicForGame(gameId, autoplay) {
+  musicOwnerId = gameId;
+  musicAlbumIdx = 0;
+  musicTrackIdx = 0;
+  await loadMusicAlbums(autoplay);
+}
+
+// ----- game detail Music section -----
+async function renderGameDetailMusic(game) {
+  const box = document.getElementById("game-music-content");
+  if (!box) return;
+
+  let data = { path: null };
+  try {
+    data = await apiCall(`/games/${game.id}/music`);
+  } catch (e) {
+    data = { path: null };
+  }
+
+  if (data && data.path) {
+    musicPath = data.path;
+    box.innerHTML = `
+      <div class="detail-music-row">
+        <span style="color: var(--text-muted); font-size: 0.85rem;">🎵 Soundtrack linked</span>
+        <button onclick="openMusicForGame(${game.id}, true)">▶ Open Player</button>
+        <button class="secondary" onclick="showMusicPathForm(${game.id})">Change Folder</button>
+        <button class="secondary" style="color: #ff6b6b;" onclick="removeGameMusic(${game.id})">Remove</button>
+      </div>
+      <div class="music-info" style="margin-top:8px;">${escapeHtml(data.path)}</div>`;
+  } else {
+    box.innerHTML = musicPathFormHtml(game.id);
+  }
+}
+
+function musicPathFormHtml(gameId) {
+  return `
+    <p style="color: var(--text-muted); font-size: 0.82rem; margin: 4px 0 0;">
+      Paste the server folder path to this game's soundtrack folder.
+    </p>
+    <div class="music-path-form">
+      <input type="text" id="music-path-input" placeholder="/srv/…/Music/Game Name/" spellcheck="false" />
+      <button onclick="saveGameMusic(${gameId})">Save</button>
+    </div>`;
+}
+
+function showMusicPathForm(gameId) {
+  const box = document.getElementById("game-music-content");
+  if (box) box.innerHTML = musicPathFormHtml(gameId);
+}
+
+async function saveGameMusic(gameId) {
+  const input = document.getElementById("music-path-input");
+  const path = (input && input.value || "").trim();
+  if (!path) {
+    showToast("Paste the server folder path first", "warning");
+    return;
+  }
+  try {
+    const res = await apiCall(`/games/${gameId}/music`, {
+      method: "PUT",
+      body: JSON.stringify({ path }),
+    });
+    if (res && res.path) musicPath = res.path;
+    showToast("Soundtrack linked 🎵", "success");
+    renderGameDetailMusic(currentGameDetail || { id: gameId });
+    openMusicForGame(gameId, false);
+  } catch (e) {
+    // error already shown
+  }
+}
+
+async function removeGameMusic(gameId) {
+  if (!confirm("Remove the linked soundtrack for this game?")) return;
+  try {
+    await apiCall(`/games/${gameId}/music`, { method: "DELETE" });
+    musicPath = null;
+    showToast("Soundtrack removed", "success");
+    renderGameDetailMusic(currentGameDetail || { id: gameId });
+  } catch (e) {
+    // error already shown
+  }
 }
