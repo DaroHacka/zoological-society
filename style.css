@@ -3465,9 +3465,11 @@ button:disabled {
   background: var(--mp-hover);
   display: flex; align-items: center; justify-content: center; font-size: 30px;
   border: 1px solid var(--mp-border);
-  transition: flex-basis 0.3s ease, height 0.3s ease;
+  cursor: zoom-in;
+  transition: flex-basis 0.3s ease, height 0.3s ease, transform 0.4s cubic-bezier(0.22, 0.61, 0.36, 1), border-radius 0.4s ease;
 }
 .music-panel.floating .music-cover-box { flex-basis: 84px; height: 84px; }
+.music-cover-box.zoomed { z-index: 60; overflow: visible; cursor: zoom-out; }
 .music-cover-box::before { content: "♫"; font-size: 34px; line-height: 1; color: var(--mp-muted); }
 .music-cover-box img { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
 .music-cover-box img:not([src]) { display: none; }

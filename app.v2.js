@@ -6806,6 +6806,7 @@ function dockMusicPlayer() {
   const panel = $("#music-panel");
   const anchor = $("#music-anchor");
   if (!panel || !anchor) return;
+  musicZoomCover(false);
   anchor.appendChild(panel);
   panel.classList.remove("floating");
   musicFloating = false;
@@ -6815,6 +6816,7 @@ function dockMusicPlayer() {
 function floatMusicPlayer() {
   const panel = $("#music-panel");
   if (!panel) return;
+  musicZoomCover(false);
   document.body.appendChild(panel);
   panel.classList.add("floating");
   musicFloating = true;
@@ -6916,6 +6918,43 @@ function restartMarquee(el) {
   if (el.textContent) {
     el.style.animationDuration = `${Math.max(8, Math.round(el.textContent.length / 3) + 6)}s`;
     el.classList.add("anim");
+  }
+}
+
+// ----- cover zoom (anchored player) -----
+let musicZoomTimer = null;
+
+function musicZoomCover(on) {
+  const box = $("#music-cover-box");
+  const panel = $("#music-panel");
+  if (!box || !panel) return;
+  if (!on) {
+    box.classList.remove("zoomed");
+    box.style.transform = "";
+    box.style.transformOrigin = "";
+    box.style.borderRadius = "";
+    return;
+  }
+  if (musicFloating) return;
+  if (!box.querySelector("img[src]")) return;
+  const pr = panel.getBoundingClientRect();
+  const cr = box.getBoundingClientRect();
+  const s = Math.max(0.001, Math.min(pr.width / cr.width, pr.height / cr.height));
+  const tx = pr.left - cr.left + (pr.width - cr.width * s) / 2;
+  const ty = pr.top - cr.top + (pr.height - cr.height * s) / 2;
+  box.classList.add("zoomed");
+  box.style.transformOrigin = "0 0";
+  box.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`;
+  box.style.borderRadius = "10px";
+}
+
+function musicToggleZoomCover() {
+  const box = $("#music-cover-box");
+  const zoomed = box && box.classList.contains("zoomed");
+  musicZoomCover(!zoomed);
+  clearTimeout(musicZoomTimer);
+  if (!zoomed && window.matchMedia && window.matchMedia("(pointer: coarse)").matches) {
+    musicZoomTimer = setTimeout(() => musicZoomCover(false), 5000);
   }
 }
 
