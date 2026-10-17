@@ -1899,6 +1899,7 @@ function showSeriesListView() {
   $("#series-detail-view").classList.add("hidden");
   $("#collections-list-view").classList.add("hidden");
   $("#collections-create-view").classList.add("hidden");
+  $("#music-list-view").classList.add("hidden");
   $("#series-list-view").classList.remove("hidden");
 
   seriesAlphaFilter = null;
@@ -2731,6 +2732,10 @@ async function performGlobalSearch(query) {
     $("#console-toolbar").style.display = "none";
     $(".metadata-actions").style.display = "none";
     $("#game-list").style.display = "none";
+    $("#series-list-view").classList.add("hidden");
+    $("#series-detail-view").classList.add("hidden");
+    $("#collections-list-view").classList.add("hidden");
+    $("#music-list-view").classList.add("hidden");
     
     $("#search-query").textContent = query;
     renderSearchResults(results);
