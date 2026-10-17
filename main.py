@@ -6697,14 +6697,17 @@ def _music_albums_for(root: str, game_id: int):
                     s for s in os.listdir(base) if os.path.isdir(os.path.join(base, s)))]
             except OSError:
                 pass
+        preferred = re.compile(r"(cover|folder|front|album|case|artwork)", re.IGNORECASE)
         for d in dirs:
             try:
-                imgs = sorted(
+                imgs = [
                     f for f in os.listdir(d)
-                    if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in IMAGE_EXTS)
+                    if os.path.isfile(os.path.join(d, f)) and os.path.splitext(f)[1].lower() in IMAGE_EXTS
+                ]
             except OSError:
                 imgs = []
             if imgs:
+                imgs.sort(key=lambda f: (0 if preferred.search(f) else 1, f.lower()))
                 return rel_of(os.path.join(d, imgs[0]))
         return None
 
@@ -6859,19 +6862,33 @@ def list_music_library():
     conn = get_conn()
     try:
         rows = conn.execute(
-            "SELECT g.id, g.title, g.cover_url, c.name as console_name "
+            "SELECT g.id, g.title, g.cover_url, c.name as console_name, gm.music_path "
             "FROM games g JOIN game_music gm ON gm.game_id = g.id "
             "LEFT JOIN consoles c ON g.console_id = c.id "
             "ORDER BY g.title COLLATE NOCASE"
         ).fetchall()
     finally:
         conn.close()
-    return {"items": [{
-        "id": r["id"],
-        "title": r["title"],
-        "cover_url": r["cover_url"],
-        "console_name": r["console_name"],
-    } for r in rows]}
+
+    items = []
+    for r in rows:
+        cover_url = r["cover_url"]
+        root = r["music_path"]
+        if root and os.path.isdir(root):
+            try:
+                for album in _music_albums_for(root, r["id"]):
+                    if album.get("cover_url"):
+                        cover_url = album["cover_url"]
+                        break
+            except OSError:
+                pass
+        items.append({
+            "id": r["id"],
+            "title": r["title"],
+            "cover_url": cover_url,
+            "console_name": r["console_name"],
+        })
+    return {"items": items}
 
 
 @app.get("/api/music/favorites")

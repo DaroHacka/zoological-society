@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=48" />
+  <link rel="stylesheet" href="style.css?v=49" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -409,6 +409,7 @@
               <span id="music-library-count" style="color: var(--text-muted); font-size: 0.85rem;"></span>
             </div>
           </div>
+          <div id="music-anchor" class="music-anchor"></div>
           <div id="music-favorites-section" class="music-fav-section">
             <h3>⭐ Favourite Tracks</h3>
             <div id="music-favorites" class="music-fav-list"></div>
@@ -456,6 +457,7 @@
     <div class="music-panel-foot">
       <span class="music-vol-icon" title="Volume">♪</span>
       <input type="range" id="music-volume" min="0" max="1" step="0.01" value="1" oninput="setMusicVolume(this.value)" title="Volume" />
+      <button class="music-float-btn" id="btn-music-float" onclick="toggleMusicFloat()" title="Toggle floating player">⎋ Float</button>
     </div>
     <div id="music-info" class="music-info hidden"><span class="music-info-text" id="music-info-text"></span></div>
   </div>
@@ -512,6 +514,13 @@
       <label>
         Platform badge text color
         <input type="color" id="theme-console-badge-color" value="#101018" />
+      </label>
+      <label>
+        Player theme
+        <select id="theme-player-theme">
+          <option value="amber">Amber (default)</option>
+          <option value="purple">Purple 8-bit</option>
+        </select>
       </label>
 
       <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
@@ -955,6 +964,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=46"></script>
+  <script src="app.v2.js?v=47"></script>
 </body>
 </html>

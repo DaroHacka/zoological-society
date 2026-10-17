@@ -5803,6 +5803,7 @@ async function onSaveTheme() {
     bgColor,
     accent,
     consoleBadgeColor: $("#theme-console-badge-color").value,
+    playerTheme: $("#theme-player-theme").value,
     headerImage,
     iconMatchAccent: $("#theme-icon-match-accent").checked,
     iconColor: $("#theme-icon-color").value,
@@ -6068,6 +6069,8 @@ async function populateThemeModal() {
         const badgeInput = $("#theme-console-badge-color");
         if (badgeInput) badgeInput.value = theme.consoleBadgeColor;
       }
+      const playerThemeSel = $("#theme-player-theme");
+      if (playerThemeSel) playerThemeSel.value = theme.playerTheme === "purple" ? "purple" : "amber";
       if (theme.iconMatchAccent !== undefined) {
         const iconAccentCb = $("#theme-icon-match-accent");
         if (iconAccentCb) iconAccentCb.checked = !!theme.iconMatchAccent;
@@ -6168,6 +6171,7 @@ function applyTheme(theme) {
   if (theme.consoleBadgeColor) {
     document.documentElement.style.setProperty("--console-badge-text", theme.consoleBadgeColor);
   }
+  document.documentElement.classList.toggle("player-theme-purple", theme.playerTheme === "purple");
   if (theme.headerImage) {
     headerGeneration++;
     const gen = headerGeneration;
@@ -6623,6 +6627,7 @@ let musicLoaded = false;
 let musicFavorites = {};
 let musicLibrary = [];
 let musicLibraryLetter = null;
+let musicFloating = false;
 
 try {
   const _v = parseFloat(localStorage.getItem("game_music_volume"));
@@ -6705,10 +6710,11 @@ function renderMusicLibraryGrid() {
         ? `<img src="${toAbsoluteUrl(g.cover_url)}${g.cover_url.includes("?") ? "&" : "?"}t=${Date.now()}" alt="${escapeHtml(g.title)} cover" />`
         : `<div class="no-cover">No cover</div>`;
       return `
-        <article class="game-card" onclick="openGameDetail(${g.id})">
+        <article class="game-card" onclick="playLibrarySoundtrack(${g.id})" title="Play soundtrack">
           <div class="game-cover ${aspectClassForConsole(null)}" style="position: relative;">
             ${cover}
             <span class="game-stars-badge" style="color:var(--accent)">🎵</span>
+            <button class="game-info-btn" title="Open game" onclick="event.stopPropagation(); openGameDetail(${g.id})">i</button>
           </div>
           <div class="game-title">${escapeHtml(g.title)}</div>
           <div class="game-meta">${g.console_name ? escapeHtml(g.console_name) : ""}</div>
@@ -6769,6 +6775,7 @@ async function playFavoriteTrack(gameId, trackPath) {
   musicOwnerId = gameId;
   musicAlbumIdx = 0;
   musicTrackIdx = 0;
+  dockMusicPlayer();
   await loadMusicAlbums(false);
   const album = currentAlbum();
   if (!album) return;
@@ -6788,6 +6795,48 @@ function currentAlbum() {
 function currentTrack() {
   const a = currentAlbum();
   return (a && a.tracks && a.tracks[musicTrackIdx]) || null;
+}
+
+function updateMusicFloatBtn() {
+  const btn = $("#btn-music-float");
+  if (btn) btn.textContent = musicFloating ? "⤓ Anchor" : "⎋ Float";
+}
+
+function dockMusicPlayer() {
+  const panel = $("#music-panel");
+  const anchor = $("#music-anchor");
+  if (!panel || !anchor) return;
+  anchor.appendChild(panel);
+  panel.classList.remove("floating");
+  musicFloating = false;
+  updateMusicFloatBtn();
+}
+
+function floatMusicPlayer() {
+  const panel = $("#music-panel");
+  if (!panel) return;
+  document.body.appendChild(panel);
+  panel.classList.add("floating");
+  musicFloating = true;
+  updateMusicFloatBtn();
+}
+
+async function toggleMusicFloat() {
+  if (!musicOwnerId) return;
+  if (musicFloating) {
+    if (currentView !== "music-list") {
+      await showMusicListView();
+    }
+    dockMusicPlayer();
+  } else {
+    floatMusicPlayer();
+  }
+}
+
+async function playLibrarySoundtrack(gameId) {
+  await openMusicForGame(gameId, true, "anchor");
+  const anchor = $("#music-anchor");
+  if (anchor) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function loadMusicAlbums(autoplay) {
@@ -6841,7 +6890,7 @@ function renderMusic() {
   const cover = $("#music-cover");
   if (cover) {
     if (alb && alb.cover_url) {
-      cover.src = toAbsoluteUrl(alb.cover_url) + `?t=${Date.now()}`;
+      cover.src = toAbsoluteUrl(alb.cover_url) + (alb.cover_url.includes("?") ? "&" : "?") + `t=${Date.now()}`;
       cover.style.display = "";
     } else {
       cover.removeAttribute("src");
@@ -6849,6 +6898,7 @@ function renderMusic() {
     }
   }
   updateMusicMarquee();
+  updateMusicFloatBtn();
 }
 
 function updateMusicMarquee() {
@@ -6969,7 +7019,10 @@ function closeMusic() {
   musicAudio.removeAttribute("src");
   musicAudio.load();
   const panel = $("#music-panel");
-  if (panel) panel.classList.add("hidden");
+  if (panel) {
+    dockMusicPlayer();
+    panel.classList.add("hidden");
+  }
   const play = $("#music-play");
   if (play) play.textContent = "▶";
 }
@@ -6996,10 +7049,12 @@ musicAudio.addEventListener("timeupdate", () => {
 });
 
 // ----- album loading for the player -----
-async function openMusicForGame(gameId, autoplay) {
+async function openMusicForGame(gameId, autoplay, mode) {
   musicOwnerId = gameId;
   musicAlbumIdx = 0;
   musicTrackIdx = 0;
+  if (mode === "anchor") dockMusicPlayer();
+  else floatMusicPlayer();
   await loadMusicAlbums(autoplay);
 }
 
