@@ -6219,24 +6219,125 @@ def get_console_stats(console_id: int):
 # -------------------------------------------------------------------
 
 @app.get("/api/stats/completion-timeline")
-def get_completion_timeline(granularity: str = "month"):
-    """Get completion counts grouped by month or year (from completed_at)"""
+def get_completion_timeline(range: str = "all", granularity: str = "auto"):
+    """Completion counts over time.
+
+    range: all | 5y | 1y | 1m | 1w  (window ending today)
+    granularity: auto | day | week | month | year
+      - auto: month for all/5y/1y, week for 1m, day for 1w
+      - year: also counts completions that only have a year in their note
+    """
+    from datetime import timedelta, date
     try:
+        range = (range or "all").lower()
+        gran = (granularity or "auto").lower()
+        if gran not in ("auto", "day", "week", "month", "year"):
+            gran = "auto"
+
+        today = date.today()
+        deltas = {
+            "1w": timedelta(days=6),
+            "1m": timedelta(days=29),
+            "1y": timedelta(days=364),
+            "5y": timedelta(days=1826),
+        }
+        from_date = (today - deltas[range]) if range in deltas else None
+
         conn = get_conn()
         cur = conn.cursor()
-        fmt = "%Y" if granularity == "year" else "%Y-%m"
         cur.execute("""
-            SELECT strftime(?, completed_at) as period, COUNT(*) as count
+            SELECT completed_at, completed_date_note
             FROM game_status
-            WHERE is_completed = 1 AND completed_at IS NOT NULL AND completed_at != ''
-            GROUP BY period
-            ORDER BY period;
-        """, (fmt,))
+            WHERE is_completed = 1;
+        """)
         rows = cur.fetchall()
         conn.close()
+
+        # Yearly mode: use completed_at year, else the last year mentioned in the note
+        if gran == "year":
+            year_re = re.compile(r"\b(19\d{2}|20\d{2})\b")
+            counts = {}
+            for r in rows:
+                ca = str(r["completed_at"] or "")
+                if ca[:4].isdigit():
+                    y = int(ca[:4])
+                else:
+                    ys = year_re.findall(r["completed_date_note"] or "")
+                    y = int(ys[-1]) if ys else None
+                if y is None or (from_date and y < from_date.year):
+                    continue
+                counts[y] = counts.get(y, 0) + 1
+            periods = set()
+            if from_date:
+                y = from_date.year
+                while y <= today.year:
+                    periods.add(str(y))
+                    y += 1
+            periods.update(str(y) for y in counts)
+            ordered = sorted(periods)
+            return {
+                "granularity": "year",
+                "range": range,
+                "items": [{"period": p, "count": counts.get(int(p), 0)} for p in ordered],
+            }
+
+        if gran == "auto":
+            gran = {"1m": "week", "1w": "day"}.get(range, "month")
+
+        def period_of(ca):
+            ca = str(ca)
+            if len(ca) < 10:
+                return None
+            if gran == "month":
+                return ca[:7]
+            if gran == "day":
+                return ca[:10]
+            try:
+                y, w, _ = date.fromisoformat(ca[:10]).isocalendar()
+                return "%d-W%02d" % (y, w)
+            except ValueError:
+                return None
+
+        counts = {}
+        for r in rows:
+            ca = r["completed_at"]
+            if not ca:
+                continue
+            try:
+                d = date.fromisoformat(str(ca)[:10])
+            except ValueError:
+                continue
+            if from_date and d < from_date:
+                continue
+            p = period_of(ca)
+            if p:
+                counts[p] = counts.get(p, 0) + 1
+
+        # Zero-fill the window so short ranges stay continuous
+        periods = set(counts)
+        if from_date:
+            if gran == "day":
+                d = from_date
+                while d <= today:
+                    periods.add(d.isoformat())
+                    d += timedelta(days=1)
+            elif gran == "week":
+                d = from_date
+                while d <= today:
+                    y, w, _ = d.isocalendar()
+                    periods.add("%d-W%02d" % (y, w))
+                    d += timedelta(days=1)
+            else:  # month
+                y, m = from_date.year, from_date.month
+                while (y, m) <= (today.year, today.month):
+                    periods.add("%04d-%02d" % (y, m))
+                    y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+        ordered = sorted(periods)
         return {
-            "granularity": "year" if granularity == "year" else "month",
-            "items": [{"period": r["period"], "count": r["count"]} for r in rows],
+            "granularity": gran,
+            "range": range,
+            "items": [{"period": p, "count": counts.get(p, 0)} for p in ordered],
         }
     except Exception as e:
         logger.error(f"Failed to get completion timeline: {e}")

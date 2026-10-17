@@ -2466,13 +2466,19 @@ async function loadStats() {
 // -----------------------------------------------------------
 // Completion Timeline Chart (homepage)
 // -----------------------------------------------------------
+let completionChartRange = "all";
+let completionChartMode = "monthly";
+
 async function loadCompletionChart() {
   const container = $("#completion-chart");
   if (!container) return;
 
+  const gran = completionChartMode === "yearly" ? "year" : "auto";
   let data;
   try {
-    data = await apiCall("/stats/completion-timeline?granularity=month");
+    data = await apiCall(
+      `/stats/completion-timeline?range=${completionChartRange}&granularity=${gran}`
+    );
   } catch (e) {
     container.innerHTML = "";
     return;
@@ -2485,11 +2491,14 @@ async function loadCompletionChart() {
   }
 
   const maxCount = Math.max(...items.map((i) => i.count), 1);
-  const barWidth = 26;
-  const gap = 10;
+  const dense = items.length > 16;
+  const rotate = items.length > 18;
+  const barWidth = dense ? 16 : 26;
+  const gap = dense ? 6 : 10;
   const chartHeight = 130;
-  const labelSpace = 26;
-  const width = items.length * (barWidth + gap) + gap;
+  const labelSpace = rotate ? 48 : 26;
+  const contentWidth = items.length * (barWidth + gap) + gap;
+  const width = Math.max(contentWidth, container.clientWidth || 0);
   const height = chartHeight + labelSpace;
 
   const bars = items
@@ -2498,26 +2507,60 @@ async function loadCompletionChart() {
       const x = gap + idx * (barWidth + gap);
       const y = chartHeight - barH;
       const label = formatChartPeriod(item.period);
-      return `
-        <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="var(--accent)" opacity="0.85">
-          <title>${label}: ${item.count}</title>
-        </rect>
-        <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${item.count}</text>
-        <text x="${x + barWidth / 2}" y="${chartHeight + 16}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${label}</text>
-      `;
+      const rect =
+        item.count > 0
+          ? `<rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="var(--accent)" opacity="0.85"><title>${label}: ${item.count}</title></rect>`
+          : `<rect x="${x}" y="${chartHeight - 1}" width="${barWidth}" height="1" fill="var(--border-subtle)"><title>${label}: 0</title></rect>`;
+      const countText =
+        item.count > 0
+          ? `<text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${item.count}</text>`
+          : "";
+      const labelEl = rotate
+        ? `<text x="${x + barWidth / 2}" y="${chartHeight + 12}" text-anchor="end" font-size="9" fill="var(--text-muted)" transform="rotate(-45 ${x + barWidth / 2} ${chartHeight + 12})">${label}</text>`
+        : `<text x="${x + barWidth / 2}" y="${chartHeight + 16}" text-anchor="middle" font-size="9" fill="var(--text-muted)">${label}</text>`;
+      return rect + countText + labelEl;
     })
     .join("");
 
-  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Games completed per month">${bars}</svg>`;
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Games completed over time">${bars}</svg>`;
+}
+
+function setupCompletionChartControls() {
+  const rangeGroup = $("#completion-range");
+  if (rangeGroup) {
+    rangeGroup.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        completionChartRange = btn.dataset.range;
+        rangeGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+        loadCompletionChart();
+      });
+    });
+  }
+  const modeGroup = $("#completion-mode");
+  if (modeGroup) {
+    modeGroup.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        completionChartMode = btn.dataset.mode;
+        modeGroup.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+        loadCompletionChart();
+      });
+    });
+  }
 }
 
 function formatChartPeriod(period) {
   if (!period) return "";
   const parts = String(period).split("-");
-  if (parts.length < 2) return period;
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  if (parts.length === 1) return parts[0];
+  if (parts.length === 2) {
+    if (parts[1].startsWith("W")) return parts[1];
+    const m = parseInt(parts[1], 10);
+    return `${months[m - 1] || parts[1]} ${parts[0].slice(2)}`;
+  }
   const m = parseInt(parts[1], 10);
-  return `${months[m - 1] || parts[1]} ${parts[0].slice(2)}`;
+  const d = parseInt(parts[2], 10);
+  return `${d} ${months[m - 1] || parts[1]}`;
 }
 
 async function loadRecentlyViewed() {
@@ -3649,6 +3692,9 @@ function bindUI() {
   if (statCompleted) {
     statCompleted.addEventListener("click", showCompletedGamesModal);
   }
+
+  // Homepage completion chart range/mode controls
+  setupCompletionChartControls();
 }
 
 function toggleModal(selector, show) {

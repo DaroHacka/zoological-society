@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=50" />
+  <link rel="stylesheet" href="style.css?v=51" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -167,7 +167,22 @@
 
           <!-- Completion Timeline Chart -->
           <div class="homepage-chart" id="completion-chart-wrap">
-            <h3>Games Completed Over Time</h3>
+            <div class="chart-head">
+              <h3>Games Completed Over Time</h3>
+              <div class="chart-controls">
+                <div class="chart-seg" id="completion-range">
+                  <button type="button" data-range="all" class="active" title="All time">All</button>
+                  <button type="button" data-range="5y" title="Last 5 years">5 Years</button>
+                  <button type="button" data-range="1y" title="Last year">1 Year</button>
+                  <button type="button" data-range="1m" title="Last month">1 Month</button>
+                  <button type="button" data-range="1w" title="Last week">1 Week</button>
+                </div>
+                <div class="chart-seg" id="completion-mode">
+                  <button type="button" data-mode="monthly" class="active" title="Monthly buckets">Monthly</button>
+                  <button type="button" data-mode="yearly" title="Yearly buckets (includes year-only notes)">Yearly</button>
+                </div>
+              </div>
+            </div>
             <div id="completion-chart"></div>
           </div>
           
@@ -964,6 +979,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=49"></script>
+  <script src="app.v2.js?v=50"></script>
 </body>
 </html>
