@@ -14,6 +14,31 @@ This project is built for people who want a personal archive that feels **beauti
 
 ## 📰 What's New (Latest Updates)
 
+### Version 3.0 - Music Player, Ratings & Completion Tracking
+
+#### 🎵 Music Player
+- **Per-game soundtracks** - Link any game to a server folder of music; the player streams tracks directly from disk
+- **Two modes** - An **anchored** player docked in the Music view, or a **floating** player that hangs in the corner so you can browse the archive while listening
+- **Favourites & Super Favourites** - Cycle any track through ☆ → ★ → ★★ (favourite / super favourite), listed in the Music view
+- **Music library** - Every linked soundtrack in one A–Z view, showing album art with a play-on-click card
+- **Retro finish** - Press Start 2P pixel font, zoomable album cover, and a **Player theme** setting (Amber or Purple 8-bit)
+
+#### ⭐ Ratings & Completion
+- **6-star personal rating** - Rate any game from its detail page or straight from the card thumbnail
+- **Completion date** - Pick a completion date alongside the existing free-text notes
+- **Completion timeline** - A homepage chart showing how many games you finished per month/year
+
+#### 🔤 Browsing & Theming
+- **A–Z alpha index** - Jump through the Series and Collections lists by letter
+- **Badge text colour** - New theme setting for the platform badge text colour
+
+#### 🐞 Fixes
+- **Album cover not showing** - A malformed cache-buster URL broke soundtrack cover art; now fixed, and cover files named `cover`/`folder`/`front` are preferred
+- **`/api/games/completed` route** - Was shadowed by the game-detail route, so the Completed list never loaded; reordered and fixed
+- **Multi-genre series** - A game in several genres now appears under each relevant genre bucket instead of only the first
+
+---
+
 ### Version 2.2 - Metadata, Genres & Status Overhaul
 
 #### 🗄️ Database & Backend
