@@ -3,7 +3,7 @@ import re
 import json
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from io import BytesIO
 from PIL import Image
 from typing import Optional, List
@@ -2784,16 +2784,57 @@ def get_games_by_status(console_id: int, status: str = Query(..., description="S
         logger.error(f"Failed to get games by status: {e}")
         raise HTTPException(status_code=500, detail="Failed to get games by status")
 
+def _completion_year(completed_at, note):
+    """Year a game was completed: from completed_at, else the last year in the note."""
+    ca = str(completed_at or "")
+    if ca[:4].isdigit():
+        return int(ca[:4])
+    if note:
+        ys = re.findall(r"\b(19\d{2}|20\d{2})\b", note)
+        if ys:
+            return int(ys[-1])
+    return None
+
+
+def _completed_in_period(completed_at, note, period, granularity):
+    """Return True if a completion falls inside the given timeline bucket."""
+    ca = str(completed_at or "")
+    if granularity == "year":
+        if not re.fullmatch(r"\d{4}", period or ""):
+            raise HTTPException(status_code=400, detail="Invalid period for granularity=year")
+        y = _completion_year(ca, note)
+        return y is not None and str(y) == period
+    if granularity == "month":
+        if not re.fullmatch(r"\d{4}-\d{2}", period or ""):
+            raise HTTPException(status_code=400, detail="Invalid period for granularity=month")
+        return ca[:7] == period
+    if granularity == "day":
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", period or ""):
+            raise HTTPException(status_code=400, detail="Invalid period for granularity=day")
+        return ca[:10] == period
+    if granularity == "week":
+        m = re.fullmatch(r"(\d{4})-W(\d{2})", period or "")
+        if not m:
+            raise HTTPException(status_code=400, detail="Invalid period for granularity=week")
+        try:
+            start = date.fromisocalendar(int(m.group(1)), int(m.group(2)), 1)
+            d = date.fromisoformat(ca[:10])
+        except ValueError:
+            return False
+        return start <= d <= start + timedelta(days=6)
+    raise HTTPException(status_code=400, detail="Invalid granularity")
+
+
 @app.get("/api/games/completed", response_model=List[SearchResultGame])
-def get_completed_games():
-    """Get list of completed games"""
+def get_completed_games(period: Optional[str] = None, granularity: Optional[str] = None):
+    """Get completed games, optionally filtered to a timeline bucket."""
     try:
         conn = get_conn()
         cur = conn.cursor()
 
         cur.execute("""
             SELECT g.id, g.title, g.genre, g.cover_url, c.name as console_name,
-                   gs.completed_date_note, gs.completed_at
+                   c.id as console_id, gs.completed_date_note, gs.completed_at
             FROM games g
             JOIN consoles c ON g.console_id = c.id
             JOIN game_status gs ON g.id = gs.game_id
@@ -2804,14 +2845,26 @@ def get_completed_games():
         rows = cur.fetchall()
         conn.close()
 
+        if period:
+            gran = (granularity or "month").lower()
+            if gran not in ("year", "month", "week", "day"):
+                raise HTTPException(status_code=400, detail="Invalid granularity")
+            rows = [
+                r for r in rows
+                if _completed_in_period(r["completed_at"], r["completed_date_note"], period, gran)
+            ]
+
         return [SearchResultGame(
             id=r["id"],
             title=r["title"],
             genre=r["genre"],
             cover_url=r["cover_url"],
             console_name=r["console_name"],
+            console_id=r["console_id"],
             completed_at=r["completed_at"]
         ) for r in rows]
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get completed games: {e}")
         raise HTTPException(status_code=500, detail="Failed to get completed games")
@@ -6227,7 +6280,6 @@ def get_completion_timeline(range: str = "all", granularity: str = "auto"):
       - auto: month for all/5y/1y, week for 1m, day for 1w
       - year: also counts completions that only have a year in their note
     """
-    from datetime import timedelta, date
     try:
         range = (range or "all").lower()
         gran = (granularity or "auto").lower()
@@ -6255,15 +6307,9 @@ def get_completion_timeline(range: str = "all", granularity: str = "auto"):
 
         # Yearly mode: use completed_at year, else the last year mentioned in the note
         if gran == "year":
-            year_re = re.compile(r"\b(19\d{2}|20\d{2})\b")
             counts = {}
             for r in rows:
-                ca = str(r["completed_at"] or "")
-                if ca[:4].isdigit():
-                    y = int(ca[:4])
-                else:
-                    ys = year_re.findall(r["completed_date_note"] or "")
-                    y = int(ys[-1]) if ys else None
+                y = _completion_year(r["completed_at"], r["completed_date_note"])
                 if y is None or (from_date and y < from_date.year):
                     continue
                 counts[y] = counts.get(y, 0) + 1

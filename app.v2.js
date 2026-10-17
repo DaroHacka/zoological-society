@@ -2490,6 +2490,7 @@ async function loadCompletionChart() {
     return;
   }
 
+  const resolvedGran = (data && data.granularity) || "month";
   const maxCount = Math.max(...items.map((i) => i.count), 1);
   const dense = items.length > 16;
   const rotate = items.length > 18;
@@ -2507,10 +2508,11 @@ async function loadCompletionChart() {
       const x = gap + idx * (barWidth + gap);
       const y = chartHeight - barH;
       const label = formatChartPeriod(item.period);
+      const tip = formatChartTooltip(item.period, item.count);
       const rect =
         item.count > 0
-          ? `<rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="var(--accent)" opacity="0.85"><title>${label}: ${item.count}</title></rect>`
-          : `<rect x="${x}" y="${chartHeight - 1}" width="${barWidth}" height="1" fill="var(--border-subtle)"><title>${label}: 0</title></rect>`;
+          ? `<rect class="chart-bar" data-period="${item.period}" data-gran="${resolvedGran}" x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="var(--accent)" opacity="0.85"><title>${tip}</title></rect>`
+          : `<rect x="${x}" y="${chartHeight - 1}" width="${barWidth}" height="1" fill="var(--border-subtle)"><title>${tip}</title></rect>`;
       const countText =
         item.count > 0
           ? `<text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${item.count}</text>`
@@ -2546,6 +2548,15 @@ function setupCompletionChartControls() {
       });
     });
   }
+
+  const chartContainer = $("#completion-chart");
+  if (chartContainer) {
+    chartContainer.addEventListener("click", (e) => {
+      const bar = e.target.closest(".chart-bar");
+      if (!bar) return;
+      showCompletionsForPeriod(bar.dataset.period, bar.dataset.gran || "month");
+    });
+  }
 }
 
 function formatChartPeriod(period) {
@@ -2561,6 +2572,27 @@ function formatChartPeriod(period) {
   const m = parseInt(parts[1], 10);
   const d = parseInt(parts[2], 10);
   return `${d} ${months[m - 1] || parts[1]}`;
+}
+
+function formatChartPeriodLong(period) {
+  if (!period) return "";
+  const months = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+  const parts = String(period).split("-");
+  if (parts.length === 1) return parts[0];
+  if (parts[1].startsWith("W")) return `Week ${parts[1].slice(1)} ${parts[0]}`;
+  if (parts.length === 3) {
+    const m = parseInt(parts[1], 10);
+    return `${parseInt(parts[2], 10)} ${months[m - 1] || parts[1]} ${parts[0]}`;
+  }
+  const m = parseInt(parts[1], 10);
+  return `${months[m - 1] || parts[1]} ${parts[0]}`;
+}
+
+function formatChartTooltip(period, count) {
+  const label = formatChartPeriodLong(period);
+  const n = count === 1 ? "1 game" : `${count} games`;
+  return `${label}: ${n}`;
 }
 
 async function loadRecentlyViewed() {
@@ -2961,46 +2993,73 @@ function toggleGetStarted() {
 async function showCompletedGamesModal() {
   try {
     const games = await apiCall("/games/completed");
-    const container = $("#completed-games-list");
-    
-    if (!games || games.length === 0) {
-      container.innerHTML = '<p class="no-items">No completed games yet</p>';
-    } else {
-      container.innerHTML = "";
-      games.forEach(game => {
-        const div = document.createElement("div");
-        div.className = "completed-game-item";
-        
-        const coverUrl = game.cover_url ? toAbsoluteUrl(game.cover_url) : "";
-        const coverImg = coverUrl 
-          ? `<img src="${coverUrl}" alt="${game.title}" />`
-          : `<div class="no-cover-small" style="width:50px;height:75px;background:var(--card-bg);display:flex;align-items:center;justify-content:center;border-radius:4px;">🎮</div>`;
-        
-        div.innerHTML = `
-          ${coverImg}
-          <div class="info">
-            <div class="title">${game.title}</div>
-            <div class="console">${game.console_name}</div>
-          </div>
-        `;
-        div.onclick = () => {
-          toggleModal("#modal-completed-games", false);
-          // Navigate to the game
-          const console = consoles.find(c => c.name === game.console_name);
-          if (console) {
-            selectConsole(console.id).then(() => {
-              openGameDetail(game.id);
-            });
-          }
-        };
-        container.appendChild(div);
-      });
-    }
-    
-    toggleModal("#modal-completed-games", true);
+    renderCompletedGamesList(games, "Completed Games");
   } catch (e) {
     showToast("Failed to load completed games", "error");
+    return;
   }
+  toggleModal("#modal-completed-games", true);
+}
+
+async function showCompletionsForPeriod(period, gran) {
+  if (!period) return;
+  try {
+    const games = await apiCall(
+      `/games/completed?period=${encodeURIComponent(period)}&granularity=${encodeURIComponent(gran)}`
+    );
+    renderCompletedGamesList(games, `Completed in ${formatChartPeriodLong(period)}`);
+  } catch (e) {
+    showToast("Failed to load completions", "error");
+    return;
+  }
+  toggleModal("#modal-completed-games", true);
+}
+
+function renderCompletedGamesList(games, title) {
+  const titleEl = $("#completed-games-title");
+  if (titleEl) titleEl.textContent = title || "Completed Games";
+
+  const container = $("#completed-games-list");
+  if (!container) return;
+
+  if (!games || games.length === 0) {
+    container.innerHTML = '<p class="no-items">No completed games</p>';
+    return;
+  }
+
+  container.innerHTML = "";
+  games.forEach(game => {
+    const div = document.createElement("div");
+    div.className = "completed-game-item";
+
+    const coverUrl = game.cover_url ? toAbsoluteUrl(game.cover_url) : "";
+    const coverImg = coverUrl
+      ? `<img src="${coverUrl}" alt="${game.title}" />`
+      : `<div class="no-cover-small" style="width:50px;height:75px;background:var(--card-bg);display:flex;align-items:center;justify-content:center;border-radius:4px;">🎮</div>`;
+
+    const dateLine = game.completed_at
+      ? `<div class="console">${formatChartPeriodLong(game.completed_at)}</div>`
+      : "";
+
+    div.innerHTML = `
+      ${coverImg}
+      <div class="info">
+        <div class="title">${game.title}</div>
+        <div class="console">${game.console_name}</div>
+        ${dateLine}
+      </div>
+    `;
+    div.onclick = () => {
+      toggleModal("#modal-completed-games", false);
+      const console = consoles.find(c => c.name === game.console_name);
+      if (console) {
+        selectConsole(console.id).then(() => {
+          openGameDetail(game.id);
+        });
+      }
+    };
+    container.appendChild(div);
+  });
 }
 
 // -----------------------------------------------------------
