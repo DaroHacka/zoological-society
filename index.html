@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=53" />
+  <link rel="stylesheet" href="style.css?v=54" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -577,6 +577,59 @@
           </div>
         </div>
       </fieldset>
+
+      <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
+      <fieldset style="border: none; margin: 0; padding: 0;">
+        <legend style="padding: 0; font-size: 1.2rem;">Button effects</legend>
+
+        <label>
+          Sidebar hover effect
+          <select id="theme-hover-anim">
+            <option value="instant">Instant (default)</option>
+            <option value="lr">Left → right</option>
+            <option value="rl">Right → left</option>
+            <option value="tb">Top → bottom</option>
+            <option value="bt">Bottom → top</option>
+            <option value="center">Center → out</option>
+            <option value="in">Edges → in</option>
+            <option value="random">Random (each hover)</option>
+          </select>
+        </label>
+
+        <label>
+          Halo glow style
+          <select id="theme-glow-style">
+            <option value="none">None (default)</option>
+            <option value="breath">Soft breathing</option>
+            <option value="ripple">Halo ripple</option>
+            <option value="sweep">Sweep-synced</option>
+            <option value="rotating">Rotating ring</option>
+            <option value="drift">Drifting multi-layer</option>
+          </select>
+        </label>
+
+        <label>
+          Glow trigger
+          <select id="theme-glow-trigger">
+            <option value="hover">On hover (default)</option>
+            <option value="always">Always on</option>
+            <option value="selected">Only when selected (expanded)</option>
+          </select>
+        </label>
+
+        <label style="display: block; margin-top: 10px;">
+          Glow speed — <span id="theme-glow-speed-val">1.0×</span>
+          <input type="range" id="theme-glow-speed" min="0.4" max="3" step="0.1" value="1" style="width: 100%;" />
+        </label>
+        <label style="display: block; margin-top: 6px;">
+          Turbulence — <span id="theme-glow-turbulence-val">20%</span>
+          <input type="range" id="theme-glow-turbulence" min="0" max="100" step="5" value="20" style="width: 100%;" />
+        </label>
+        <label style="display: block; margin-top: 6px;">
+          Rotation — <span id="theme-glow-rotation-val">30%</span>
+          <input type="range" id="theme-glow-rotation" min="0" max="100" step="5" value="30" style="width: 100%;" />
+        </label>
+      </fieldset>
       <div id="theme-current-header" class="theme-current-header hidden">
         <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted);">Current header image:</p>
         <div style="position: relative; display: inline-block;">
@@ -983,6 +1036,6 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=52"></script>
+  <script src="app.v2.js?v=53"></script>
 </body>
 </html>

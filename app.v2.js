@@ -632,6 +632,7 @@ function toggleGenreFilter() {
     genreList.style.display = "none";
   }
   if (icon) icon.textContent = genreFilterOpen ? "▼" : "▶";
+  syncSidebarEffectClasses();
 }
 
 function extractGenres() {
@@ -1116,6 +1117,7 @@ function toggleStatusFilter() {
     statusList.style.display = "none";
     if (icon) icon.textContent = "▶";
   }
+  syncSidebarEffectClasses();
 }
 
 function toggleConsoleList() {
@@ -1132,6 +1134,7 @@ function toggleConsoleList() {
     if (icon) icon.textContent = "▶";
     localStorage.setItem("consoleListCollapsed", "true");
   }
+  syncSidebarEffectClasses();
 }
 
 function loadConsoleListState() {
@@ -2094,6 +2097,7 @@ function toggleDetailFilter() {
   const collapsed = content.style.display === "none";
   content.style.display = collapsed ? "block" : "none";
   if (icon) icon.textContent = collapsed ? "▼" : "▶";
+  syncSidebarEffectClasses();
 }
 
 function toggleDetailFilterGroup(type) {
@@ -2729,6 +2733,7 @@ function goToHomepage() {
   renderConsoles();
   renderCollections();
   renderStatusFilters();
+  syncSidebarEffectClasses();
 }
 
 function renderHomepage() {
@@ -3141,7 +3146,32 @@ async function recordGameView(gameId) {  try {
 // Page State Persistence
 // -----------------------------------------------------------
 
+function syncSidebarEffectClasses() {
+  const openMap = {
+    "#consoles-section-btn": "#console-list",
+    "#genre-section-btn": "#genre-list",
+    "#detail-section-btn": "#detail-filter-content",
+    "#status-section-btn": "#status-filter-list",
+  };
+  Object.keys(openMap).forEach((btnSel) => {
+    const btn = $(btnSel);
+    const list = $(openMap[btnSel]);
+    if (btn && list) btn.classList.toggle("is-open", list.style.display !== "none");
+  });
+  const view = typeof currentView !== "undefined" ? currentView : "";
+  const selectedMap = {
+    "#collections-section-btn": view === "collections-list" || view === "collections-create",
+    "#series-section-btn": view === "series-list" || view === "series-create" || view === "series-detail" || view === "series",
+    "#music-section-btn": view === "music-list",
+  };
+  Object.keys(selectedMap).forEach((btnSel) => {
+    const btn = $(btnSel);
+    if (btn) btn.classList.toggle("is-selected", !!selectedMap[btnSel]);
+  });
+}
+
 function savePageState() {
+  syncSidebarEffectClasses();
   localStorage.setItem('archive_currentConsoleId', currentConsoleId || '');
   localStorage.setItem('archive_currentCollectionId', currentCollectionId || '');
   localStorage.setItem('archive_currentSeriesId', currentSeriesId || '');
@@ -3363,6 +3393,8 @@ document.addEventListener("DOMContentLoaded", () => {
     renderAlphaIndex();
     renderThumbFormatControl();
     applySavedTheme();
+    setupGlowControls();
+    setupSidebarRandomHover();
     initLightboxHandlers();
     initTabHandlers();
     initThemeIconControls();
@@ -5916,6 +5948,12 @@ async function onSaveTheme() {
     glow,
     consoleBadgeColor: $("#theme-console-badge-color").value,
     playerTheme: $("#theme-player-theme").value,
+    hoverAnim: $("#theme-hover-anim") ? $("#theme-hover-anim").value : "instant",
+    glowStyle: $("#theme-glow-style") ? $("#theme-glow-style").value : "none",
+    glowTrigger: $("#theme-glow-trigger") ? $("#theme-glow-trigger").value : "hover",
+    glowSpeed: parseFloat($("#theme-glow-speed") ? $("#theme-glow-speed").value : "1"),
+    glowTurbulence: parseFloat($("#theme-glow-turbulence") ? $("#theme-glow-turbulence").value : "20"),
+    glowRotation: parseFloat($("#theme-glow-rotation") ? $("#theme-glow-rotation").value : "30"),
     headerImage,
     iconMatchAccent: $("#theme-icon-match-accent").checked,
     iconColor: $("#theme-icon-color").value,
@@ -6185,6 +6223,14 @@ async function populateThemeModal() {
       }
       const playerThemeSel = $("#theme-player-theme");
       if (playerThemeSel) playerThemeSel.value = theme.playerTheme === "purple" ? "purple" : "amber";
+      const setVal = (sel, val) => { const el = $(sel); if (el && val !== undefined && val !== null) el.value = val; };
+      setVal("#theme-hover-anim", theme.hoverAnim || "instant");
+      setVal("#theme-glow-style", theme.glowStyle || "none");
+      setVal("#theme-glow-trigger", theme.glowTrigger || "hover");
+      setVal("#theme-glow-speed", theme.glowSpeed !== undefined ? theme.glowSpeed : 1);
+      setVal("#theme-glow-turbulence", theme.glowTurbulence !== undefined ? theme.glowTurbulence : 20);
+      setVal("#theme-glow-rotation", theme.glowRotation !== undefined ? theme.glowRotation : 30);
+      updateGlowSliderLabels();
       if (theme.iconMatchAccent !== undefined) {
         const iconAccentCb = $("#theme-icon-match-accent");
         if (iconAccentCb) iconAccentCb.checked = !!theme.iconMatchAccent;
@@ -6250,9 +6296,46 @@ function applySavedTheme() {
     const theme = JSON.parse(raw);
     applyTheme(theme);
   } catch (e) {
-    console.error("Failed to parse saved theme:", e);
+    console.error("Failed to apply saved theme:", e);
   }
 }
+
+// -----------------------------------------------------------
+// Button effects: hover-fill + halo glow controls
+// -----------------------------------------------------------
+function updateGlowSliderLabels() {
+  const speed = $("#theme-glow-speed");
+  const turb = $("#theme-glow-turbulence");
+  const rot = $("#theme-glow-rotation");
+  const speedVal = $("#theme-glow-speed-val");
+  const turbVal = $("#theme-glow-turbulence-val");
+  const rotVal = $("#theme-glow-rotation-val");
+  if (speed && speedVal) speedVal.textContent = parseFloat(speed.value).toFixed(1) + "×";
+  if (turb && turbVal) turbVal.textContent = turb.value + "%";
+  if (rot && rotVal) rotVal.textContent = rot.value + "%";
+}
+
+function setupGlowControls() {
+  ["#theme-glow-speed", "#theme-glow-turbulence", "#theme-glow-rotation"].forEach((sel) => {
+    const el = $(sel);
+    if (el) el.addEventListener("input", updateGlowSliderLabels);
+  });
+  updateGlowSliderLabels();
+}
+
+function setupSidebarRandomHover() {
+  const sidebar = $(".sidebar");
+  if (!sidebar || sidebar.dataset.randomHoverBound === "1") return;
+  sidebar.dataset.randomHoverBound = "1";
+  const modes = ["lr", "rl", "tb", "bt", "center", "in"];
+  sidebar.querySelectorAll(".sidebar-section-btn").forEach((btn) => {
+    btn.addEventListener("mouseenter", () => {
+      if (document.documentElement.dataset.hoverAnim !== "random") return;
+      btn.setAttribute("data-hover-anim", modes[Math.floor(Math.random() * modes.length)]);
+    });
+  });
+}
+
 
 // -----------------------------------------------------------
 // Theme
@@ -6309,6 +6392,20 @@ function applyTheme(theme) {
   document.documentElement.style.setProperty("--glow", glow);
   document.documentElement.style.setProperty("--glow-rgb", hexToRgb(glow));
   document.documentElement.style.setProperty("--glow-light", lightenHex(glow, 0.22));
+
+  // Button hover-fill + animated halo glow configuration
+  document.documentElement.dataset.hoverAnim = theme.hoverAnim || "instant";
+  document.documentElement.dataset.glowStyle = theme.glowStyle || "none";
+  document.documentElement.dataset.glowTrigger = theme.glowTrigger || "hover";
+  const glowSpeed = isNaN(parseFloat(theme.glowSpeed)) ? 1 : parseFloat(theme.glowSpeed);
+  const glowTurb = isNaN(parseFloat(theme.glowTurbulence)) ? 20 : parseFloat(theme.glowTurbulence);
+  const glowRot = isNaN(parseFloat(theme.glowRotation)) ? 30 : parseFloat(theme.glowRotation);
+  document.documentElement.style.setProperty("--glow-anim-duration", (2.6 / glowSpeed).toFixed(3) + "s");
+  document.documentElement.style.setProperty("--glow-turb", (glowTurb / 100).toFixed(3));
+  document.documentElement.style.setProperty("--glow-rot-duration", (12 - (glowRot / 100) * 10.5).toFixed(3) + "s");
+  // Clear any leftover per-hover random modes so the configured mode applies uniformly
+  document.querySelectorAll(".sidebar-section-btn[data-hover-anim]").forEach((el) => el.removeAttribute("data-hover-anim"));
+
   if (theme.consoleBadgeColor) {
     document.documentElement.style.setProperty("--console-badge-text", theme.consoleBadgeColor);
   }
@@ -6816,6 +6913,7 @@ async function showMusicListView() {
     musicLibrary = [];
   }
   renderMusicLibraryGrid();
+  syncSidebarEffectClasses();
 }
 
 function renderMusicAlphaIndex() {
