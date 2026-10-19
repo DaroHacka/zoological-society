@@ -305,6 +305,132 @@ CATALOG = [
 _BY_SLUG = {e.slug: e for e in CATALOG}
 
 
+# ---------------------------------------------------------------------------
+# Brand / manufacturer grouping
+# ---------------------------------------------------------------------------
+# Ordered list of the brands the sidebar Groups consoles under. The order here
+# drives display order (brands with no consoles are simply not shown); anything
+# not covered falls back to "Other".
+BRANDS = [
+    "Microsoft",
+    "Nintendo",
+    "PC",
+    "SEGA",
+    "Sony",
+    "TurboGrafx",
+    "Atari",
+    "SNK",
+    "NEC",
+    "Commodore",
+    "Sinclair",
+    "Amstrad",
+    "Acorn",
+    "Apple",
+    "Bandai",
+    "Sharp",
+    "Fujitsu",
+    "Other",
+]
+
+# Canonical slug -> brand. Consoles paired with the catalog get the exact brand
+# below regardless of how the user typed the display name.
+_BRAND_BY_SLUG = {
+    # Nintendo
+    "nes": "Nintendo", "snes": "Nintendo", "n64": "Nintendo",
+    "gamecube": "Nintendo", "wii": "Nintendo", "wii-u": "Nintendo",
+    "switch": "Nintendo", "switch-2": "Nintendo", "gameboy": "Nintendo",
+    "gameboy-color": "Nintendo", "gba": "Nintendo", "nds": "Nintendo",
+    "3ds": "Nintendo", "virtual-boy": "Nintendo", "fds": "Nintendo",
+    "game-and-watch": "Nintendo", "pokemon-mini": "Nintendo",
+    # SEGA
+    "sg-1000": "SEGA", "master-system": "SEGA", "genesis": "SEGA",
+    "sega-cd": "SEGA", "sega-32x": "SEGA", "saturn": "SEGA",
+    "dreamcast": "SEGA", "game-gear": "SEGA", "sega-pico": "SEGA",
+    # Sony
+    "psx": "Sony", "ps2": "Sony", "ps3": "Sony", "ps4": "Sony",
+    "ps5": "Sony", "psp": "Sony", "ps-vita": "Sony",
+    # Microsoft
+    "xbox": "Microsoft", "xbox-360": "Microsoft", "xbox-one": "Microsoft",
+    "xbox-series": "Microsoft",
+    # NEC / Hudson (TurboGrafx)
+    "pc-engine-tg16": "TurboGrafx", "pc-engine-cd": "TurboGrafx",
+    "supergrafx": "TurboGrafx", "pc-fx": "TurboGrafx",
+    # SNK
+    "neo-geo": "SNK", "neo-geo-cd": "SNK", "neo-geo-pocket": "SNK",
+    "neo-geo-pocket-color": "SNK",
+    # Bandai
+    "wonderswan": "Bandai", "wonderswan-color": "Bandai", "playdia": "Bandai",
+    # Other dedicated consoles
+    "ngage": "Nokia", "playdate": "Playdate", "evercade": "Evercade",
+    "ouya": "Ouya", "amstrad-gx4000": "Amstrad", "casio-pv-1000": "Casio",
+    "arcadia-2001": "Emerson", "astrocade": "Bally", "supervision": "Watara",
+    "gamate": "Bit Corp", "mega-duck": "Mega Duck",
+    "apple-pippin": "Apple",
+    # Computers
+    "pc": "PC", "pc-steam-deck": "PC", "linux": "PC",
+    "mac": "Apple", "ios": "Apple", "android": "Android",
+    "commodore-64": "Commodore", "amiga": "Commodore",
+    "amiga-cd32": "Commodore",
+    "zx-spectrum": "Sinclair", "zx81": "Sinclair", "zx80": "Sinclair",
+    "sinclair-ql": "Sinclair", "jupiter-ace": "Sinclair",
+    "amstrad-cpc": "Amstrad",
+    "bbc-micro": "Acorn", "acorn-electron": "Acorn", "acorn-atom": "Acorn",
+    "archimedes": "Acorn",
+    "msx": "MSX",
+    "sharp-x68000": "Sharp", "sharp-x1": "Sharp",
+    "pc-88": "NEC", "pc-98": "NEC",
+    "fm-7": "Fujitsu", "fm-towns-marty": "Fujitsu",
+    "apple-ii": "Apple",
+    "trs-80-coco": "Tandy", "dragon": "Dragon",
+    "ti-99-4a": "Texas Instruments", "sam-coupe": "SAM",
+    "oric": "Tangerine", "aquarius": "Mattel", "thomson": "Thomson",
+}
+
+# Free-text name patterns for consoles that were never paired with the catalog.
+# Order matters: more specific brands first so e.g. "PC Engine" is TurboGrafx.
+_BRAND_PATTERNS = [
+    (r"turbografx|pc[ -]?engine|tg-?16|supergrafx|pc-fx", "TurboGrafx"),
+    (r"microsoft|\bxbox\b", "Microsoft"),
+    (r"nintendo|\bnes\b|\bsnes\b|\bn64\b|game ?boy|gamecube|\bwii\b|\b3ds\b|\bnds\b", "Nintendo"),
+    (r"\bsega\b|genesis|mega ?drive|master system|dreamcast|saturn|game gear", "SEGA"),
+    (r"\bsony\b|playstation|\bps[0-9x]?\b|\bpsp\b|vita", "Sony"),
+    (r"\batari\b|jaguar|lynx", "Atari"),
+    (r"\bsnk\b|neo ?geo", "SNK"),
+    (r"\bpce?\b|picengine", "PC"),
+]
+
+
+def brand_for_slug(slug: Optional[str]) -> Optional[str]:
+    """Return the brand for a canonical catalog slug, or None if unknown."""
+    if not slug:
+        return None
+    return _BRAND_BY_SLUG.get(slug)
+
+
+def guess_brand(name: str, slug: Optional[str] = None) -> str:
+    """Best-effort brand for a console.
+
+    Prefers the canonical catalog slug, then a name lookup against the catalog,
+    then free-text patterns on the display name. Falls back to "Other".
+    """
+    brand = brand_for_slug(slug)
+    if brand:
+        return brand
+
+    entry = find_by_name(name) if name else None
+    if entry:
+        brand = brand_for_slug(entry.slug)
+        if brand:
+            return brand
+
+    low = (name or "").lower()
+    if low:
+        for pattern, pat_brand in _BRAND_PATTERNS:
+            if re.search(pattern, low):
+                return pat_brand
+    return "Other"
+
+
 def _normalize(name: str) -> str:
     s = name.lower().strip()
     s = re.sub(r"[’'`]", "", s)

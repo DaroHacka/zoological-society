@@ -521,7 +521,55 @@ html[data-hover-anim="instant"] .sidebar-section-btn:hover::before {
   opacity: 1;
 }
 
-#console-list li {
+#console-list li.console-brand-group {
+  margin: 0 0 2px;
+  padding: 0;
+  display: block;
+  position: static;
+}
+
+.console-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-weight: 700;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.console-brand-header:hover {
+  background: rgba(var(--glow-rgb), 0.08);
+}
+
+.console-brand-caret {
+  display: inline-block;
+  width: 12px;
+  font-size: 0.7rem;
+  opacity: 0.75;
+  transition: transform 0.2s ease;
+}
+
+#console-list li.console-brand-group.expanded .console-brand-caret {
+  transform: rotate(90deg);
+}
+
+.console-brand-list {
+  list-style: none;
+  padding: 0;
+  margin: 2px 0 4px;
+  display: none;
+}
+
+#console-list li.console-brand-group.expanded .console-brand-list {
+  display: block;
+}
+
+.console-item {
   padding: 8px 10px 8px 84px;
   border-radius: var(--radius);
   cursor: pointer;
@@ -533,21 +581,21 @@ html[data-hover-anim="instant"] .sidebar-section-btn:hover::before {
   position: relative;
 }
 
-#console-list li:hover {
+.console-item:hover {
   background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
-#console-list li.active {
+.console-item.active {
   background: transparent;
   font-weight: 700;
 }
 
-#console-list li span.console-name {
+.console-item span.console-name {
   font-size: 0.95rem;
 }
 
-#console-list li span.console-count {
+.console-item span.console-count {
   font-size: 0.75rem;
   color: var(--text-muted);
   margin-left: 4px;
@@ -577,8 +625,8 @@ html[data-hover-anim="instant"] .sidebar-section-btn:hover::before {
   color: #ff6b6b;
 }
 
-#console-list li:hover .delete-console-btn,
-#console-list li:hover .edit-console-btn {
+.console-item:hover .delete-console-btn,
+.console-item:hover .edit-console-btn {
   opacity: 1;
 }
 
@@ -601,6 +649,81 @@ html[data-hover-anim="instant"] .sidebar-section-btn:hover::before {
   height: 24px;
   object-fit: contain;
   border-radius: 4px;
+}
+
+/* Collapsible settings sections */
+.settings-section {
+  margin: 10px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.settings-section > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  transition: background 0.2s ease;
+}
+
+.settings-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-section > summary::before {
+  content: "\25B8";
+  font-size: 0.75rem;
+  opacity: 0.75;
+  transition: transform 0.2s ease;
+}
+
+.settings-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.settings-section > summary:hover {
+  background: rgba(var(--glow-rgb), 0.08);
+}
+
+.settings-section-body {
+  padding: 4px 12px 12px;
+}
+
+/* Console group edit modal */
+.console-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.console-group-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.console-group-row .console-group-name {
+  flex: 1;
+  font-size: 0.9rem;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.console-group-row select {
+  flex: 0 0 auto;
+  min-width: 120px;
 }
 
 /* Genre Filter */
@@ -1992,7 +2115,8 @@ button:disabled {
 /* ============================================
    TOUCH / DOUBLE-TAP FIX
    ============================================ */
-#console-list li,
+.console-item,
+.console-brand-header,
 .game-card,
 .letter-index-btn,
 .sidebar,
@@ -2131,7 +2255,7 @@ button:disabled {
     width: 20px;
     height: 20px;
   }
-  #console-list li {
+  .console-item {
     padding: 6px 8px 6px 40px;
     font-size: 0.85rem;
   }

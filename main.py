@@ -251,6 +251,7 @@ class ConsoleBase(BaseModel):
     path: Optional[str] = None  # Optional - can create console without path
     slug: Optional[str] = None  # Canonical catalog identity (optional on input)
     thumbnail_aspect: Optional[str] = None  # 'portrait' | 'square' | 'landscape'
+    brand: Optional[str] = None  # Manufacturer group (None -> auto-detect on create)
 
 class ConsoleResponse(ConsoleBase):
     id: int
@@ -492,6 +493,13 @@ def get_console_catalog():
     """Full canonical console catalog for the add-console picker"""
     import console_catalog
     return [e.to_dict() for e in console_catalog.all_entries()]
+
+
+@app.get("/api/consoles/brands")
+def get_console_brands():
+    """Ordered list of known console brands for manual grouping"""
+    import console_catalog
+    return {"brands": list(console_catalog.BRANDS)}
 
 
 # -------------------------------------------------------------------
@@ -780,9 +788,25 @@ def init_db():
     if "slug" not in existing_cols:
         cur.execute("ALTER TABLE consoles ADD COLUMN slug TEXT")
         logger.info("Migration: added consoles.slug column")
+    if "brand" not in existing_cols:
+        cur.execute("ALTER TABLE consoles ADD COLUMN brand TEXT")
+        logger.info("Migration: added consoles.brand column")
     if "thumbnail_aspect" not in existing_cols:
         cur.execute("ALTER TABLE consoles ADD COLUMN thumbnail_aspect TEXT DEFAULT 'portrait'")
         logger.info("Migration: added consoles.thumbnail_aspect column")
+
+    # Backfill any console missing a brand from the catalog / name patterns.
+    try:
+        import console_catalog as _cc
+        rows = cur.execute("SELECT id, name, slug, brand FROM consoles").fetchall()
+        for row in rows:
+            if row["brand"]:
+                continue
+            brand = _cc.guess_brand(row["name"], row["slug"])
+            cur.execute("UPDATE consoles SET brand = ? WHERE id = ?;", (brand, row["id"]))
+        logger.info("Migration: backfilled console brands")
+    except Exception as me:
+        logger.warning(f"Console brand backfill skipped: {me}")
 
     try:
         import console_catalog
@@ -2094,7 +2118,7 @@ def get_consoles():
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT c.id, c.name, c.path, c.slug, c.thumbnail_aspect, COUNT(g.id) as game_count
+            SELECT c.id, c.name, c.path, c.slug, c.brand, c.thumbnail_aspect, COUNT(g.id) as game_count
             FROM consoles c
             LEFT JOIN games g ON c.id = g.console_id
             GROUP BY c.id
@@ -2157,10 +2181,13 @@ def add_console(console: ConsoleBase):
             if entry:
                 slug = entry.slug
 
+        # Brand: explicit value wins, else auto-detect from catalog / name
+        brand = (console.brand or "").strip() or _cc.guess_brand(console.name, slug)
+
         try:
             cur.execute(
-                "INSERT INTO consoles (name, path, created_at, slug, thumbnail_aspect) VALUES (?, ?, ?, ?, ?);",
-                (console.name.strip(), path, now, slug, aspect),
+                "INSERT INTO consoles (name, path, created_at, slug, brand, thumbnail_aspect) VALUES (?, ?, ?, ?, ?, ?);",
+                (console.name.strip(), path, now, slug, brand, aspect),
             )
             cid = cur.lastrowid
             conn.commit()
@@ -2172,7 +2199,7 @@ def add_console(console: ConsoleBase):
             conn.close()
         
         icon_url = match_console_icon(console.name)
-        return ConsoleResponse(id=cid, name=console.name, path=path, slug=slug,
+        return ConsoleResponse(id=cid, name=console.name, path=path, slug=slug, brand=brand,
                                thumbnail_aspect=aspect, game_count=0, icon_url=icon_url)
     except HTTPException:
         raise
@@ -2194,14 +2221,14 @@ def update_console(console_id: int, console: ConsoleBase):
         conn = get_conn()
         cur = conn.cursor()
 
-        cur.execute("SELECT id, path, slug, thumbnail_aspect FROM consoles WHERE id = ?;", (console_id,))
+        cur.execute("SELECT id, path, slug, thumbnail_aspect, brand FROM consoles WHERE id = ?;", (console_id,))
         existing = cur.fetchone()
 
         if not existing:
             conn.close()
             raise HTTPException(status_code=404, detail="Console not found")
 
-        _, path, current_slug, current_aspect = existing
+        _, path, current_slug, current_aspect, current_brand = existing
 
         updates = ["name = ?"]
         params = [console.name.strip()]
@@ -2213,6 +2240,14 @@ def update_console(console_id: int, console: ConsoleBase):
             params.append(aspect)
         else:
             aspect = current_aspect or "portrait"
+
+        if console.brand is not None:
+            brand = console.brand.strip() or None
+            if brand:
+                updates.append("brand = ?")
+                params.append(brand)
+        else:
+            brand = current_brand
 
         params.append(console_id)
         cur.execute(
@@ -2229,7 +2264,8 @@ def update_console(console_id: int, console: ConsoleBase):
 
         icon_url = match_console_icon(console.name)
         return ConsoleResponse(id=console_id, name=console.name, path=path,
-                               slug=current_slug, thumbnail_aspect=aspect,
+                               slug=current_slug, brand=brand,
+                               thumbnail_aspect=aspect,
                                game_count=game_count, icon_url=icon_url)
     except HTTPException:
         raise

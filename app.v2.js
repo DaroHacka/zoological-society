@@ -3395,6 +3395,7 @@ document.addEventListener("DOMContentLoaded", () => {
     applySavedTheme();
     setupGlowControls();
     setupSidebarRandomHover();
+    setupSettingsSections();
     initLightboxHandlers();
     initTabHandlers();
     initThemeIconControls();
@@ -3811,6 +3812,7 @@ async function loadInitialData() {
     consoles = [];
   }
 
+  await loadConsoleBrands();
   renderConsoles();
 
   // Load collections
@@ -3870,28 +3872,208 @@ async function loadInitialData() {
 // -----------------------------------------------------------
 // Consoles
 // -----------------------------------------------------------
+// -----------------------------------------------------------
+// Console grouping (by brand / manufacturer)
+// -----------------------------------------------------------
+let consoleBrands = [];
+let expandedConsoleBrands = null;
+
+function getConsoleBrandKey() {
+  return "gameArchiveConsoleBrandsExpanded";
+}
+
+function loadExpandedConsoleBrands() {
+  if (expandedConsoleBrands) return expandedConsoleBrands;
+  try {
+    expandedConsoleBrands = new Set(JSON.parse(localStorage.getItem(getConsoleBrandKey()) || "[]"));
+  } catch (e) {
+    expandedConsoleBrands = new Set();
+  }
+  return expandedConsoleBrands;
+}
+
+function saveExpandedConsoleBrands() {
+  try {
+    localStorage.setItem(getConsoleBrandKey(), JSON.stringify([...loadExpandedConsoleBrands()]));
+  } catch (e) {}
+}
+
+async function loadConsoleBrands() {
+  if (consoleBrands.length) return consoleBrands;
+  try {
+    const res = await apiCall("/consoles/brands");
+    consoleBrands = (res && res.brands) || [];
+  } catch (e) {
+    consoleBrands = [];
+  }
+  return consoleBrands;
+}
+
+function getConsoleBrand(c) {
+  return (c && c.brand && c.brand.trim()) || "Other";
+}
+
+function orderedConsoleBrands() {
+  const present = new Set(consoles.map(getConsoleBrand));
+  const ordered = [];
+  consoleBrands.forEach((b) => {
+    if (present.has(b)) {
+      ordered.push(b);
+      present.delete(b);
+    }
+  });
+  const extras = [...present].filter((b) => b !== "Other").sort((a, b) => a.localeCompare(b));
+  ordered.push(...extras);
+  if (present.has("Other")) ordered.push("Other");
+  return ordered;
+}
+
+function toggleConsoleBrand(brand) {
+  const expanded = loadExpandedConsoleBrands();
+  if (expanded.has(brand)) expanded.delete(brand);
+  else expanded.add(brand);
+  saveExpandedConsoleBrands();
+  renderConsoles();
+}
+
+function showConsoleEditButton() {
+  const btn = document.getElementById("console-edit-btn");
+  if (!btn) return;
+  if (consoles && consoles.length > 0) btn.classList.remove("hidden");
+  else btn.classList.add("hidden");
+}
+
 function renderConsoles() {
   const list = $("#console-list");
+  if (!list) return;
   list.innerHTML = "";
 
-  consoles.forEach((c) => {
-    const li = document.createElement("li");
-    li.dataset.id = c.id;
-    li.className = c.id === currentConsoleId ? "active" : "";
-    li.innerHTML = `
-      <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
-      <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
-      ${c.icon_url ? `<img class="console-icon" src="${toAbsoluteUrl(c.icon_url)}" alt="${c.name}" />` : ''}
-      <span class="console-name">${c.name}</span>
-      <span class="console-count">${c.game_count}</span>
-    `;
-    li.addEventListener("click", (e) => {
-      if (!e.target.classList.contains('delete-console-btn') && !e.target.classList.contains('edit-console-btn')) {
+  const expanded = loadExpandedConsoleBrands();
+  const active = consoles.find((c) => c.id === currentConsoleId);
+  if (active) expanded.add(getConsoleBrand(active));
+
+  orderedConsoleBrands().forEach((brand) => {
+    const items = consoles
+      .filter((c) => getConsoleBrand(c) === brand)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (!items.length) return;
+
+    const group = document.createElement("li");
+    group.className = "console-brand-group" + (expanded.has(brand) ? " expanded" : "");
+
+    const header = document.createElement("div");
+    header.className = "console-brand-header";
+    header.innerHTML = `<span class="console-brand-caret">\u25B8</span><span class="console-brand-name">${brand}</span>`;
+    header.addEventListener("click", () => toggleConsoleBrand(brand));
+    group.appendChild(header);
+
+    const sublist = document.createElement("ul");
+    sublist.className = "console-brand-list";
+    items.forEach((c) => {
+      const li = document.createElement("li");
+      li.dataset.id = c.id;
+      li.className = "console-item" + (c.id === currentConsoleId ? " active" : "");
+      li.innerHTML = `
+        <button class="edit-console-btn" onclick="editConsole(${c.id}, event)" title="Rename console"><img class="icon-img-sm" src="/ico/edit.svg" alt="Edit"/></button>
+        <button class="delete-console-btn" onclick="deleteConsole(${c.id}, event)" title="Delete console"><img class="icon-img-sm" src="/ico/recycle%20bin.svg" alt="Delete"/></button>
+        ${c.icon_url ? `<img class="console-icon" src="${toAbsoluteUrl(c.icon_url)}" alt="${c.name}" />` : ''}
+        <span class="console-name">${c.name}</span>
+        <span class="console-count">${c.game_count}</span>
+      `;
+      li.addEventListener("click", (e) => {
+        if (e.target.closest('button')) return;
         selectConsole(c.id);
-      }
+      });
+      sublist.appendChild(li);
     });
-    list.appendChild(li);
+    group.appendChild(sublist);
+    list.appendChild(group);
   });
+
+  showConsoleEditButton();
+}
+
+// -----------------------------------------------------------
+// Manual console grouping (gear on the Consoles header)
+// -----------------------------------------------------------
+let consoleGroupEditMode = false;
+
+function toggleConsoleGroupEdit() {
+  consoleGroupEditMode = !consoleGroupEditMode;
+  if (consoleGroupEditMode) {
+    loadConsoleBrands().then(() => {
+      renderConsoleGroupsPanel();
+      toggleModal("#modal-console-groups", true);
+    });
+  } else {
+    toggleModal("#modal-console-groups", false);
+  }
+}
+
+function renderConsoleGroupsPanel() {
+  const container = document.getElementById("console-groups-list");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const known = [...consoleBrands];
+  const sorted = [...consoles].sort((a, b) => a.name.localeCompare(b.name));
+  sorted.forEach((c) => {
+    const current = getConsoleBrand(c);
+    const options = [...known];
+    if (!options.includes(current)) options.push(current);
+
+    const row = document.createElement("div");
+    row.className = "console-group-row";
+
+    const label = document.createElement("span");
+    label.className = "console-group-name";
+    label.textContent = c.name;
+
+    const select = document.createElement("select");
+    select.dataset.consoleId = c.id;
+    options.forEach((b) => {
+      const opt = document.createElement("option");
+      opt.value = b;
+      opt.textContent = b;
+      if (b === current) opt.selected = true;
+      select.appendChild(opt);
+    });
+
+    row.appendChild(label);
+    row.appendChild(select);
+    container.appendChild(row);
+  });
+}
+
+async function saveConsoleGroups() {
+  const selects = document.querySelectorAll("#console-groups-list select[data-console-id]");
+  const saveBtn = document.getElementById("btn-console-groups-save");
+  if (saveBtn) saveBtn.disabled = true;
+
+  let changed = 0;
+  try {
+    for (const select of selects) {
+      const id = Number(select.dataset.consoleId);
+      const c = consoles.find((x) => x.id === id);
+      if (!c) continue;
+      const brand = select.value;
+      if (brand === getConsoleBrand(c)) continue;
+
+      const updated = await apiCall(`/consoles/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: c.name, brand }),
+      });
+      c.brand = (updated && updated.brand) || brand;
+      changed++;
+    }
+    renderConsoles();
+    toggleConsoleGroupEdit();
+    showToast(changed ? `Updated grouping for ${changed} console${changed === 1 ? "" : "s"}.` : "No changes.", "success");
+  } catch (e) {
+    showToast("Failed to update console grouping.", "error");
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 let editingConsoleId = null;
@@ -6332,6 +6514,28 @@ function setupSidebarRandomHover() {
     btn.addEventListener("mouseenter", () => {
       if (document.documentElement.dataset.hoverAnim !== "random") return;
       btn.setAttribute("data-hover-anim", modes[Math.floor(Math.random() * modes.length)]);
+    });
+  });
+}
+
+function setupSettingsSections() {
+  const KEY = "gameArchiveSettingsSections";
+  let saved = {};
+  try {
+    saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {};
+  } catch (e) {
+    saved = {};
+  }
+  document.querySelectorAll("#modal-theme .settings-section").forEach((sec) => {
+    if (!sec.id) return;
+    if (Object.prototype.hasOwnProperty.call(saved, sec.id)) {
+      sec.open = !!saved[sec.id];
+    }
+    sec.addEventListener("toggle", () => {
+      saved[sec.id] = sec.open;
+      try {
+        localStorage.setItem(KEY, JSON.stringify(saved));
+      } catch (e) {}
     });
   });
 }

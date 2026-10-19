@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Game Archive</title>
-  <link rel="stylesheet" href="style.css?v=54" />
+  <link rel="stylesheet" href="style.css?v=55" />
   <link rel="icon" type="image/png" sizes="64x64" href="favicon-64.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
@@ -49,6 +49,7 @@
         <button class="sidebar-section-btn" id="consoles-section-btn" onclick="toggleConsoleList()">
           <span class="sidebar-section-icon" id="console-section-icon"></span>
           <span class="section-btn-label">Consoles</span>
+          <span id="console-edit-btn" class="genre-edit-btn hidden" onclick="event.stopPropagation(); toggleConsoleGroupEdit()" title="Group consoles"></span>
         </button>
         <ul id="console-list" style="display:none;">
           <!-- Filled by JS -->
@@ -518,181 +519,200 @@
   <div class="modal hidden" id="modal-theme">
     <div class="modal-content">
       <h2>Settings</h2>
-      <label>
-        Background color
-        <input type="color" id="theme-bg-color" value="#101018" />
-      </label>
-      <label>
-        Accent color
-        <input type="color" id="theme-accent-color" value="#ffb400" />
-      </label>
-      <label>
-        Highlight / glow color
-        <input type="color" id="theme-glow-color" value="#ffb400" />
-      </label>
-      <label>
-        Platform badge text color
-        <input type="color" id="theme-console-badge-color" value="#101018" />
-      </label>
-      <label>
-        Player theme
-        <select id="theme-player-theme">
-          <option value="amber">Amber (default)</option>
-          <option value="purple">Purple 8-bit</option>
-        </select>
-      </label>
 
-      <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
-      <fieldset style="border: none; margin: 0; padding: 0;">
-        <legend style="padding: 0; font-size: 1.2rem;">Icon color</legend>
-        <label style="display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer;">
-          <input type="checkbox" id="theme-icon-match-accent" />
-          Match accent color
-        </label>
-        <div id="theme-icon-custom" class="hidden">
+      <details class="settings-section" id="settings-section-colors">
+        <summary>Colour palette</summary>
+        <div class="settings-section-body">
           <label>
-            Icon color
-            <input type="color" id="theme-icon-color" value="#ffffff" />
+            Background color
+            <input type="color" id="theme-bg-color" value="#101018" />
           </label>
+          <label>
+            Accent color
+            <input type="color" id="theme-accent-color" value="#ffb400" />
+          </label>
+          <label>
+            Highlight / glow color
+            <input type="color" id="theme-glow-color" value="#ffb400" />
+          </label>
+          <label>
+            Platform badge text color
+            <input type="color" id="theme-console-badge-color" value="#101018" />
+          </label>
+          <label>
+            Player theme
+            <select id="theme-player-theme">
+              <option value="amber">Amber (default)</option>
+              <option value="purple">Purple 8-bit</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <details class="settings-section" id="settings-section-icons">
+        <summary>Icon colour</summary>
+        <div class="settings-section-body">
           <label style="display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer;">
-            <input type="checkbox" id="theme-icon-gradient" />
-            Use gradient (two colors)
+            <input type="checkbox" id="theme-icon-match-accent" />
+            Match accent color
           </label>
-          <div id="theme-icon-gradient-colors" class="hidden">
-            <label style="display: inline-block; margin-right: 12px;">
-              Color 1
-              <input type="color" id="theme-icon-color1" value="#ffffff" />
+          <div id="theme-icon-custom" class="hidden">
+            <label>
+              Icon color
+              <input type="color" id="theme-icon-color" value="#ffffff" />
             </label>
-            <label style="display: inline-block;">
-              Color 2
-              <input type="color" id="theme-icon-color2" value="#a0a0b5" />
+            <label style="display: flex; align-items: center; gap: 8px; margin: 8px 0; cursor: pointer;">
+              <input type="checkbox" id="theme-icon-gradient" />
+              Use gradient (two colors)
             </label>
-            <label style="display: block; margin-top: 8px;">
-              Gradient direction
-              <select id="theme-icon-gradient-direction">
-                <option value="to bottom">Top → Bottom</option>
-                <option value="to bottom right">Diagonal</option>
-              </select>
-            </label>
+            <div id="theme-icon-gradient-colors" class="hidden">
+              <label style="display: inline-block; margin-right: 12px;">
+                Color 1
+                <input type="color" id="theme-icon-color1" value="#ffffff" />
+              </label>
+              <label style="display: inline-block;">
+                Color 2
+                <input type="color" id="theme-icon-color2" value="#a0a0b5" />
+              </label>
+              <label style="display: block; margin-top: 8px;">
+                Gradient direction
+                <select id="theme-icon-gradient-direction">
+                  <option value="to bottom">Top → Bottom</option>
+                  <option value="to bottom right">Diagonal</option>
+                </select>
+              </label>
+            </div>
           </div>
         </div>
-      </fieldset>
+      </details>
 
-      <div style="margin: 16px 0 4px; border-top: 1px solid var(--text-muted); opacity: 0.3;"></div>
-      <fieldset style="border: none; margin: 0; padding: 0;">
-        <legend style="padding: 0; font-size: 1.2rem;">Button effects</legend>
+      <details class="settings-section" id="settings-section-buttons">
+        <summary>Button effects</summary>
+        <div class="settings-section-body">
+          <label>
+            Sidebar hover effect
+            <select id="theme-hover-anim">
+              <option value="instant">Instant (default)</option>
+              <option value="lr">Left → right</option>
+              <option value="rl">Right → left</option>
+              <option value="tb">Top → bottom</option>
+              <option value="bt">Bottom → top</option>
+              <option value="center">Center → out</option>
+              <option value="in">Edges → in</option>
+              <option value="random">Random (each hover)</option>
+            </select>
+          </label>
 
-        <label>
-          Sidebar hover effect
-          <select id="theme-hover-anim">
-            <option value="instant">Instant (default)</option>
-            <option value="lr">Left → right</option>
-            <option value="rl">Right → left</option>
-            <option value="tb">Top → bottom</option>
-            <option value="bt">Bottom → top</option>
-            <option value="center">Center → out</option>
-            <option value="in">Edges → in</option>
-            <option value="random">Random (each hover)</option>
-          </select>
-        </label>
+          <label>
+            Halo glow style
+            <select id="theme-glow-style">
+              <option value="none">None (default)</option>
+              <option value="breath">Soft breathing</option>
+              <option value="ripple">Halo ripple</option>
+              <option value="sweep">Sweep-synced</option>
+              <option value="rotating">Rotating ring</option>
+              <option value="drift">Drifting multi-layer</option>
+            </select>
+          </label>
 
-        <label>
-          Halo glow style
-          <select id="theme-glow-style">
-            <option value="none">None (default)</option>
-            <option value="breath">Soft breathing</option>
-            <option value="ripple">Halo ripple</option>
-            <option value="sweep">Sweep-synced</option>
-            <option value="rotating">Rotating ring</option>
-            <option value="drift">Drifting multi-layer</option>
-          </select>
-        </label>
+          <label>
+            Glow trigger
+            <select id="theme-glow-trigger">
+              <option value="hover">On hover (default)</option>
+              <option value="always">Always on</option>
+              <option value="selected">Only when selected (expanded)</option>
+            </select>
+          </label>
 
-        <label>
-          Glow trigger
-          <select id="theme-glow-trigger">
-            <option value="hover">On hover (default)</option>
-            <option value="always">Always on</option>
-            <option value="selected">Only when selected (expanded)</option>
-          </select>
-        </label>
-
-        <label style="display: block; margin-top: 10px;">
-          Glow speed — <span id="theme-glow-speed-val">1.0×</span>
-          <input type="range" id="theme-glow-speed" min="0.4" max="3" step="0.1" value="1" style="width: 100%;" />
-        </label>
-        <label style="display: block; margin-top: 6px;">
-          Turbulence — <span id="theme-glow-turbulence-val">20%</span>
-          <input type="range" id="theme-glow-turbulence" min="0" max="100" step="5" value="20" style="width: 100%;" />
-        </label>
-        <label style="display: block; margin-top: 6px;">
-          Rotation — <span id="theme-glow-rotation-val">30%</span>
-          <input type="range" id="theme-glow-rotation" min="0" max="100" step="5" value="30" style="width: 100%;" />
-        </label>
-      </fieldset>
-      <div id="theme-current-header" class="theme-current-header hidden">
-        <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted);">Current header image:</p>
-        <div style="position: relative; display: inline-block;">
-          <img id="theme-current-header-img" src="" alt="Current header" style="max-width: 100%; max-height: 120px; border-radius: 4px;" />
-          <button type="button" id="btn-theme-remove-header" style="position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8rem;">Remove</button>
+          <label style="display: block; margin-top: 10px;">
+            Glow speed — <span id="theme-glow-speed-val">1.0×</span>
+            <input type="range" id="theme-glow-speed" min="0.4" max="3" step="0.1" value="1" style="width: 100%;" />
+          </label>
+          <label style="display: block; margin-top: 6px;">
+            Turbulence — <span id="theme-glow-turbulence-val">20%</span>
+            <input type="range" id="theme-glow-turbulence" min="0" max="100" step="5" value="20" style="width: 100%;" />
+          </label>
+          <label style="display: block; margin-top: 6px;">
+            Rotation — <span id="theme-glow-rotation-val">30%</span>
+            <input type="range" id="theme-glow-rotation" min="0" max="100" step="5" value="30" style="width: 100%;" />
+          </label>
         </div>
-      </div>
-      <label>
-        Header image URL (optional)
-        <input type="text" id="theme-header-image" placeholder="https://..." />
-      </label>
-      <div style="margin: 12px 0; text-align: center; color: var(--text-muted);">— or —</div>
-      <label>
-        Upload header image from disk
-        <input type="file" id="theme-header-upload" accept="image/*" />
-      </label>
-      <div class="theme-header-actions">
-        <button type="button" id="btn-theme-random-header" class="secondary"><img src="ico/refresh.svg" class="icon-img-sm" alt="Refresh"/> Random Header</button>
-      </div>
+      </details>
 
-      <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
-      <h2 style="margin-top: 0;">API keys</h2>
-      <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
-        Keys are stored on the server and used for cover/screenshot lookups. Leave blank to keep the current value.
-      </p>
-      <label>
-        RAWG API key
-        <input type="text" id="apikey-rawg" placeholder="not set" autocomplete="off" />
-      </label>
-      <label>
-        TheGamesDB API key
-        <input type="text" id="apikey-tgdb" placeholder="not set" autocomplete="off" />
-      </label>
-      <div id="apikey-status" style="min-height: 1.2em; font-size: 0.85rem; color: var(--text-muted);"></div>
-      <div class="modal-actions">
-        <button id="btn-apikeys-save">Save keys</button>
-      </div>
+      <details class="settings-section" id="settings-section-header">
+        <summary>Header image</summary>
+        <div class="settings-section-body">
+          <div id="theme-current-header" class="theme-current-header hidden">
+            <p style="margin: 0 0 8px; font-size: 0.9rem; color: var(--text-muted);">Current header image:</p>
+            <div style="position: relative; display: inline-block;">
+              <img id="theme-current-header-img" src="" alt="Current header" style="max-width: 100%; max-height: 120px; border-radius: 4px;" />
+              <button type="button" id="btn-theme-remove-header" style="position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 0.8rem;">Remove</button>
+            </div>
+          </div>
+          <label>
+            Header image URL (optional)
+            <input type="text" id="theme-header-image" placeholder="https://..." />
+          </label>
+          <div style="margin: 12px 0; text-align: center; color: var(--text-muted);">— or —</div>
+          <label>
+            Upload header image from disk
+            <input type="file" id="theme-header-upload" accept="image/*" />
+          </label>
+          <div class="theme-header-actions">
+            <button type="button" id="btn-theme-random-header" class="secondary"><img src="ico/refresh.svg" class="icon-img-sm" alt="Refresh"/> Random Header</button>
+          </div>
+        </div>
+      </details>
 
-      <hr style="border: none; border-top: 1px solid var(--text-muted); margin: 16px 0; opacity: 0.3;" />
-      <h2 style="margin-top: 0;">Default fetch source</h2>
-      <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
-        Used when fetching covers or screenshots for a single game. "Auto" uses the fallback chain.
-      </p>
-      <label>
-        Cover source
-        <select id="default-cover-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
-          <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
-          <option value="bing">Bing</option>
-          <option value="duckduckgo">DuckDuckGo</option>
-          <option value="tgdb">TheGamesDB</option>
-          <option value="rawg">RAWG</option>
-        </select>
-      </label>
-      <label>
-        Screenshot source
-        <select id="default-screenshot-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
-          <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
-          <option value="bing">Bing</option>
-          <option value="duckduckgo">DuckDuckGo</option>
-          <option value="tgdb">TheGamesDB</option>
-          <option value="rawg">RAWG</option>
-        </select>
-      </label>
+      <details class="settings-section" id="settings-section-apikeys">
+        <summary>API keys</summary>
+        <div class="settings-section-body">
+          <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
+            Keys are stored on the server and used for cover/screenshot lookups. Leave blank to keep the current value.
+          </p>
+          <label>
+            RAWG API key
+            <input type="text" id="apikey-rawg" placeholder="not set" autocomplete="off" />
+          </label>
+          <label>
+            TheGamesDB API key
+            <input type="text" id="apikey-tgdb" placeholder="not set" autocomplete="off" />
+          </label>
+          <div id="apikey-status" style="min-height: 1.2em; font-size: 0.85rem; color: var(--text-muted);"></div>
+          <div class="modal-actions">
+            <button id="btn-apikeys-save">Save keys</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="settings-section" id="settings-section-fetch">
+        <summary>Default fetch source</summary>
+        <div class="settings-section-body">
+          <p style="margin: 0 0 10px; font-size: 0.85rem; color: var(--text-muted);">
+            Used when fetching covers or screenshots for a single game. "Auto" uses the fallback chain.
+          </p>
+          <label>
+            Cover source
+            <select id="default-cover-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
+              <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
+              <option value="bing">Bing</option>
+              <option value="duckduckgo">DuckDuckGo</option>
+              <option value="tgdb">TheGamesDB</option>
+              <option value="rawg">RAWG</option>
+            </select>
+          </label>
+          <label>
+            Screenshot source
+            <select id="default-screenshot-source" style="padding: 8px; width: 100%; font-size: 0.9rem;">
+              <option value="auto">Auto (Bing → DuckDuckGo → RAWG → TheGamesDB)</option>
+              <option value="bing">Bing</option>
+              <option value="duckduckgo">DuckDuckGo</option>
+              <option value="tgdb">TheGamesDB</option>
+              <option value="rawg">RAWG</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       <div class="modal-actions">
         <button id="btn-theme-cancel">Cancel</button>
@@ -1036,6 +1056,21 @@ Spyro the Dragon"></textarea>
     </div>
   </div>
 
-  <script src="app.v2.js?v=53"></script>
+  <!-- Console Group Edit Modal -->
+  <div class="modal hidden" id="modal-console-groups">
+    <div class="modal-content">
+      <h2>Group Consoles</h2>
+      <p style="margin: 0 0 12px; font-size: 0.85rem; color: var(--text-muted);">
+        Each console is automatically grouped under its brand when added. Change a brand here if the automatic grouping is wrong.
+      </p>
+      <div id="console-groups-list" class="console-groups-list"></div>
+      <div class="modal-actions">
+        <button class="secondary" onclick="toggleConsoleGroupEdit()">Cancel</button>
+        <button id="btn-console-groups-save" onclick="saveConsoleGroups()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.v2.js?v=54"></script>
 </body>
 </html>
