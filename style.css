@@ -10,6 +10,9 @@
   --bg-color: #101018;
   --bg-alt: #181824;
   --accent: #ffb400;
+  --glow: #ffb400;
+  --glow-rgb: 255, 180, 0;
+  --glow-light: #ffca42;
   --text-main: #f5f5f5;
   --text-muted: #a0a0b5;
   --card-bg: #202030;
@@ -323,7 +326,7 @@ body {
 .sidebar-section-btn:hover {
   color: var(--text-main);
   border-color: var(--accent);
-  background: rgba(255, 180, 0, 0.05);
+  background: rgba(var(--glow-rgb), 0.05);
   transform: none;
   box-shadow: none;
 }
@@ -408,7 +411,7 @@ body {
 }
 
 #console-list li:hover {
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
@@ -498,12 +501,12 @@ body {
 }
 
 #genre-list li:hover {
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
 #genre-list li.active {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   color: var(--text-main);
   font-weight: 600;
 }
@@ -547,7 +550,7 @@ body {
 }
 
 .genre-char-header:hover {
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
@@ -581,7 +584,7 @@ body {
   align-items: center;
   padding: 6px 10px;
   cursor: pointer;
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   border-radius: var(--radius);
   color: var(--accent);
   font-weight: 500;
@@ -589,7 +592,7 @@ body {
 }
 
 .genre-group-header:hover {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
 }
 
 .genre-group-header .group-count {
@@ -683,7 +686,7 @@ body {
 }
 
 .genre-edit-list .genre-checkbox.checked {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   border-color: var(--accent);
   color: var(--accent);
   text-shadow: 0 0 6px var(--accent);
@@ -1034,7 +1037,7 @@ body {
   height: 36px;
   padding: 0;
   border-radius: 50%;
-  background: rgba(255, 180, 0, 0.9);
+  background: rgba(var(--glow-rgb), 0.9);
   color: #000;
   border: none;
   cursor: pointer;
@@ -1159,9 +1162,9 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #ffca42;
+  background: var(--glow-light);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 180, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(var(--glow-rgb), 0.3);
 }
 
 button:active:not(:disabled) {
@@ -1177,7 +1180,7 @@ button.secondary {
 button.secondary:hover:not(:disabled) {
   color: var(--text-main);
   border-color: var(--accent);
-  background: rgba(255, 180, 0, 0.05);
+  background: rgba(var(--glow-rgb), 0.05);
 }
 
 button:disabled {
@@ -1643,7 +1646,7 @@ button:disabled {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  background: rgba(255, 180, 0, 0.3);
+  background: rgba(var(--glow-rgb), 0.3);
   color: white;
   border: none;
   padding: 12px 16px;
@@ -1663,7 +1666,7 @@ button:disabled {
 }
 
 .lightbox-nav:hover {
-  background: rgba(255, 180, 0, 0.7);
+  background: rgba(var(--glow-rgb), 0.7);
 }
 
 .lightbox-counter {
@@ -2617,12 +2620,12 @@ button:disabled {
 }
 
 .collection-item:hover {
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
 .collection-item.active {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   color: var(--accent);
   font-weight: 600;
 }
@@ -2684,7 +2687,7 @@ button:disabled {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   border: 1px solid var(--accent);
   border-radius: 12px;
   font-size: 0.85rem;
@@ -2755,7 +2758,7 @@ button:disabled {
 }
 
 .collection-suggestion:hover {
-  background: rgba(255, 180, 0, 0.1);
+  background: rgba(var(--glow-rgb), 0.1);
   color: var(--text-main);
 }
 
@@ -2784,12 +2787,12 @@ button:disabled {
 }
 
 .series-item:hover {
-  background: rgba(255, 180, 0, 0.08);
+  background: rgba(var(--glow-rgb), 0.08);
   color: var(--text-main);
 }
 
 .series-item.active {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   color: var(--accent);
   font-weight: 600;
 }
@@ -2965,7 +2968,7 @@ button:disabled {
 }
 
 .series-reorder-btn:hover {
-  background: rgba(255, 180, 0, 0.15);
+  background: rgba(var(--glow-rgb), 0.15);
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -3255,7 +3258,7 @@ button:disabled {
 }
 
 .series-edit-grid-btn:hover {
-  background: rgba(255, 180, 0, 0.8);
+  background: rgba(var(--glow-rgb), 0.8);
 }
 
 .genre-badge {
@@ -3442,7 +3445,7 @@ button:disabled {
   --mp-accent-fg: var(--console-badge-text);
   --mp-border: var(--border-subtle);
   --mp-hover: rgba(255, 255, 255, 0.06);
-  --mp-track-active: rgba(255, 180, 0, 0.16);
+  --mp-track-active: rgba(var(--glow-rgb), 0.16);
   --mp-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   --mp-float-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
   --mp-glow: none;

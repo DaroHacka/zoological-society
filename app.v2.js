@@ -5875,6 +5875,7 @@ async function deleteScreenshot(screenshotId) {
 async function onSaveTheme() {
   const bgColor = $("#theme-bg-color").value;
   const accent = $("#theme-accent-color").value;
+  const glow = $("#theme-glow-color").value;
   let headerImage = $("#theme-header-image").value.trim();
 
   // Check if a file was uploaded
@@ -5912,6 +5913,7 @@ async function onSaveTheme() {
   const theme = {
     bgColor,
     accent,
+    glow,
     consoleBadgeColor: $("#theme-console-badge-color").value,
     playerTheme: $("#theme-player-theme").value,
     headerImage,
@@ -6175,6 +6177,8 @@ async function populateThemeModal() {
         const accentInput = $("#theme-accent-color");
         if (accentInput) accentInput.value = theme.accent;
       }
+      const glowInput = $("#theme-glow-color");
+      if (glowInput) glowInput.value = theme.glow || theme.accent || "#ffb400";
       if (theme.consoleBadgeColor) {
         const badgeInput = $("#theme-console-badge-color");
         if (badgeInput) badgeInput.value = theme.consoleBadgeColor;
@@ -6269,6 +6273,29 @@ function applyIconColorTheme(theme) {
   document.documentElement.style.setProperty("--icon-fill", fill);
 }
 
+function hexToRgb(hex) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((hex || "").trim());
+  if (!m) return "255, 180, 0";
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
+function lightenHex(hex, amount) {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec((hex || "").trim());
+  if (!m) return hex || "#ffb400";
+  let h = m[1];
+  if (h.length === 3) h = h.split("").map((c) => c + c).join("");
+  const n = parseInt(h, 16);
+  const mix = (c) => Math.round(c + (255 - c) * amount);
+  const to2 = (v) => v.toString(16).padStart(2, "0");
+  const r = mix((n >> 16) & 255);
+  const g = mix((n >> 8) & 255);
+  const b = mix(n & 255);
+  return `#${to2(r)}${to2(g)}${to2(b)}`;
+}
+
 function applyTheme(theme) {
   applyIconColorTheme(theme);
   if (theme.bgColor) {
@@ -6278,6 +6305,10 @@ function applyTheme(theme) {
   if (theme.accent) {
     document.documentElement.style.setProperty("--accent", theme.accent);
   }
+  const glow = theme.glow || theme.accent || "#ffb400";
+  document.documentElement.style.setProperty("--glow", glow);
+  document.documentElement.style.setProperty("--glow-rgb", hexToRgb(glow));
+  document.documentElement.style.setProperty("--glow-light", lightenHex(glow, 0.22));
   if (theme.consoleBadgeColor) {
     document.documentElement.style.setProperty("--console-badge-text", theme.consoleBadgeColor);
   }
