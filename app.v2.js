@@ -3943,14 +3943,20 @@ function showConsoleEditButton() {
   else btn.classList.add("hidden");
 }
 
+function expandConsoleBrandFor(consoleId) {
+  const c = consoles.find((x) => x.id === consoleId);
+  if (!c) return;
+  const expanded = loadExpandedConsoleBrands();
+  expanded.add(getConsoleBrand(c));
+  saveExpandedConsoleBrands();
+}
+
 function renderConsoles() {
   const list = $("#console-list");
   if (!list) return;
   list.innerHTML = "";
 
   const expanded = loadExpandedConsoleBrands();
-  const active = consoles.find((c) => c.id === currentConsoleId);
-  if (active) expanded.add(getConsoleBrand(active));
 
   orderedConsoleBrands().forEach((brand) => {
     const items = consoles
@@ -4134,6 +4140,7 @@ async function onSaveConsole() {
       gamesByConsole[created.id] = [];
 
       currentConsoleId = created.id;
+      expandConsoleBrandFor(created.id);
       renderConsoles();
       updateConsoleSummary();
       
@@ -4180,6 +4187,7 @@ async function selectConsole(id) {
   currentPage = 1;
   genreFilterOpen = false;
 
+  expandConsoleBrandFor(id);
   showConsoleView();
   savePageState();
   renderConsoles();
